@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, ExternalLink, Info, Mail, Phone, Send } from "lucide-react";
+import { Building2, ExternalLink, Info, Mail, Phone, Send, Sparkles, Keyboard, Download, Utensils, Flame, Share2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useInfo, sendFeedback } from "../api";
 import { ErrorCard, LoadingBlock, SectionCard, EmptyState } from "../shared";
@@ -120,10 +120,51 @@ export function InfoSection() {
           </div>
         </SectionCard>
 
+        <SectionCard title="Возможности портала" icon={<Sparkles className="h-4 w-4" />}>
+          <ul className="space-y-2.5">
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Keyboard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Горячие клавиши:</span> Alt+1…0 — быстрое переключение разделов
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Download className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Установка как приложение:</span> в браузере выберите «Установить
+                приложение» / «На экран “Домой”» — портал работает как PWA
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Utensils className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Фильтры меню:</span> поиск по блюдам и составам, вегетарианские и
+                безаллергенные фильтры, значки аллергенов на каждом блюде
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Flame className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Калькулятор калорий:</span> в разделе «Аналитика» отмечайте блюда —
+                итоги сохранятся на устройстве
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Share2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Поделиться меню:</span> кнопка «Поделиться» в столовой копирует
+                текстовое меню дня
+              </span>
+            </li>
+          </ul>
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard title="Контакты" icon={<Phone className="h-4 w-4" />}>
           <div className="grid gap-2.5 sm:grid-cols-2">
             {info.data.contacts.map((contact, i) => (
-              <div key={i} className="rounded-xl border border-border/60 bg-secondary/30 p-3">
+              <div key={i} className="rounded-xl border border-border/60 bg-secondary/30 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm">
                 <p className="text-xs font-semibold">{contact.title}</p>
                 {contact.phone ? (
                   <a
@@ -140,28 +181,6 @@ export function InfoSection() {
                 ) : null}
                 {contact.note ? <p className="mt-1 text-[11px] text-muted-foreground">{contact.note}</p> : null}
               </div>
-            ))}
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard title="Полезные ссылки" icon={<ExternalLink className="h-4 w-4" />}>
-          <div className="space-y-2">
-            {info.data.links.map((link, i) => (
-              <a
-                key={i}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/30 px-3.5 py-2.5 transition-all hover:border-primary/40 hover:bg-accent"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium group-hover:text-primary transition-colors">{link.title}</p>
-                  {link.note ? <p className="text-xs text-muted-foreground">{link.note}</p> : null}
-                </div>
-                <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" />
-              </a>
             ))}
           </div>
         </SectionCard>
@@ -183,6 +202,26 @@ export function InfoSection() {
           </SectionCard>
         </div>
       </div>
+
+      <SectionCard title="Полезные ссылки" icon={<ExternalLink className="h-4 w-4" />}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {info.data.links.map((link, i) => (
+            <a
+              key={i}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/30 px-3.5 py-2.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent hover:shadow-sm"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium group-hover:text-primary transition-colors">{link.title}</p>
+                {link.note ? <p className="text-xs text-muted-foreground">{link.note}</p> : null}
+              </div>
+              <ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" />
+            </a>
+          ))}
+        </div>
+      </SectionCard>
     </div>
   );
 }

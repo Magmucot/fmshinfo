@@ -46,7 +46,7 @@ function BellsTable() {
         {[...groups.entries()].map(([pairName, groupBells]) => (
           <div
             key={pairName}
-            className="rounded-xl border border-border/60 bg-secondary/30 p-3.5 transition-colors hover:border-primary/30"
+            className="rounded-xl border border-border/60 bg-secondary/30 p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
           >
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{pairName}</p>
             <div className="mt-2 space-y-1.5">
@@ -169,7 +169,7 @@ function ClassSchedule() {
                 {lessons.length ? (
                   <ul className="mt-2.5 space-y-1.5 max-h-80 overflow-y-auto custom-scroll pr-1">
                     {lessons.map((lesson, i) => (
-                      <li key={i} className="rounded-lg bg-background/70 px-2.5 py-2">
+                      <li key={i} className="rounded-lg bg-background/70 px-2.5 py-2 transition-colors hover:bg-background">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="truncate text-[13px] font-semibold leading-snug">{lesson.lesson}</p>

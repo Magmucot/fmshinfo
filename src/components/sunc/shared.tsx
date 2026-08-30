@@ -7,6 +7,25 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, CloudOff, RefreshCw } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import type { Nutrition } from "./types";
+
+/** Цветные пилюли БЖУ: белки — изумруд, жиры — янтарь, углеводы — тил */
+export function MacroPills({ totals, size = "sm" }: { totals: Nutrition | null | undefined; size?: "sm" | "md" }) {
+  const cls = size === "md" ? "text-xs px-2 py-0.5" : "text-[11px] px-1.5 py-0";
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <Badge variant="outline" className={`${cls} border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-semibold tabular-nums`}>
+        Б {totals?.protein ?? "—"}
+      </Badge>
+      <Badge variant="outline" className={`${cls} border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-semibold tabular-nums`}>
+        Ж {totals?.fat ?? "—"}
+      </Badge>
+      <Badge variant="outline" className={`${cls} border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-400 font-semibold tabular-nums`}>
+        У {totals?.carbs ?? "—"}
+      </Badge>
+    </div>
+  );
+}
 
 export function SectionCard({
   title,

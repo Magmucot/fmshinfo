@@ -103,7 +103,7 @@ export function WeatherSection() {
             {weather.data.forecast.map((day, i) => (
               <div
                 key={i}
-                className="flex flex-col items-center rounded-xl border border-border/60 bg-secondary/30 p-4 text-center transition-colors hover:border-primary/40"
+                className="flex flex-col items-center rounded-xl border border-border/60 bg-secondary/30 p-4 text-center transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
               >
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {day.day} · {day.date}

@@ -90,7 +90,7 @@
   --secondary: oklch(0.269 0.012 70);
   --secondary-foreground: oklch(0.95 0.005 75);
   --muted: oklch(0.269 0.012 70);
-  --muted-foreground: oklch(0.712 0.014 70);
+  --muted-foreground: oklch(0.735 0.014 70);
   --accent: oklch(0.29 0.03 70);
   --accent-foreground: oklch(0.92 0.03 75);
   --destructive: oklch(0.704 0.191 22.216);
@@ -116,8 +116,21 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: oklch(0.769 0.188 70.08 / 0.3);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 

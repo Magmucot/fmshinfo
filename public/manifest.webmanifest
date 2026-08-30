@@ -1,0 +1,51 @@
+{
+  "name": "СУНЦ Инфо — портал ученика ФМШ",
+  "short_name": "СУНЦ Инфо",
+  "description": "Меню столовой, расписание звонков и занятий, дежурства, ночные вожатые, погода в Академгородке и новости СУНЦ НГУ (ФМШ).",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#faf7f2",
+  "theme_color": "#f59e0b",
+  "categories": ["education", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Меню столовой",
+      "url": "/?tab=canteen",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Расписание",
+      "url": "/?tab=schedule",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Погода",
+      "url": "/?tab=weather",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

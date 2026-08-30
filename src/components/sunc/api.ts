@@ -11,6 +11,7 @@ import type {
   DutyResponse,
   InfoResponse,
   MenuResponse,
+  MenuStatsResponse,
   NewsResponse,
   ScheduleResponse,
   WeatherResponse,
@@ -30,6 +31,15 @@ export function useMenu(date?: string) {
     queryKey: ["menu", date ?? "today"],
     queryFn: () => api<MenuResponse>(`/api/menu${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     staleTime: 30 * 60 * 1000,
+  });
+}
+
+export function useMenuStats(days = 10, enabled = true) {
+  return useQuery<MenuStatsResponse>({
+    queryKey: ["menuStats", days],
+    queryFn: () => api<MenuStatsResponse>(`/api/menu/stats?days=${days}`),
+    staleTime: 10 * 60 * 1000,
+    enabled,
   });
 }
 

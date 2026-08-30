@@ -18,6 +18,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { CATERING_URL, SESC_BASE, fetchWithTimeout } from "./sources";
+import { cached, TTL } from "./cache";
 
 const execFileAsync = promisify(execFile);
 
@@ -87,7 +88,7 @@ export function normalizeDate(input: string): string {
   return trimmed;
 }
 
-function parseDateRu(value: string): Date {
+export function parseDateRu(value: string): Date {
   const m = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (!m) return new Date(NaN);
   return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
@@ -95,21 +96,24 @@ function parseDateRu(value: string): Date {
 
 /** Каталог меню: {"ДД.ММ.ГГГГ": абсолютный URL PDF} */
 export async function fetchCatalog(): Promise<Record<string, string>> {
-  const response = await fetchWithTimeout(CATERING_URL, { timeoutMs: 20000 });
-  if (!response.ok) throw new Error(`Каталог питания недоступен: HTTP ${response.status}`);
-  const html = await response.text();
+  const { data } = await cached("menuCatalog", TTL.menu, async () => {
+    const response = await fetchWithTimeout(CATERING_URL, { timeoutMs: 20000 });
+    if (!response.ok) throw new Error(`Каталог питания недоступен: HTTP ${response.status}`);
+    const html = await response.text();
 
-  const catalog: Record<string, string> = {};
-  let match: RegExpExecArray | null;
-  HREF_RE.lastIndex = 0;
-  while ((match = HREF_RE.exec(html)) !== null) {
-    const url = match[1].startsWith("http") ? match[1] : SESC_BASE + match[1];
-    catalog[`${match[2]}.${match[3]}.20${match[4]}`] = url;
-  }
-  if (Object.keys(catalog).length === 0) {
-    throw new Error(`На странице ${CATERING_URL} не найдено ссылок на PDF-меню`);
-  }
-  return catalog;
+    const catalog: Record<string, string> = {};
+    let match: RegExpExecArray | null;
+    HREF_RE.lastIndex = 0;
+    while ((match = HREF_RE.exec(html)) !== null) {
+      const url = match[1].startsWith("http") ? match[1] : SESC_BASE + match[1];
+      catalog[`${match[2]}.${match[3]}.20${match[4]}`] = url;
+    }
+    if (Object.keys(catalog).length === 0) {
+      throw new Error(`На странице ${CATERING_URL} не найдено ссылок на PDF-меню`);
+    }
+    return catalog;
+  });
+  return data;
 }
 
 /** Извлечь текст из PDF через системный pdftotext (stdin → stdout, fallback: temp-файл) */

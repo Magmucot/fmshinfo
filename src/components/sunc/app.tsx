@@ -2,18 +2,19 @@
 
 /** Каркас приложения «СУНЦ Инфо»: шапка, навигация, разделы, футер */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard, Utensils, CalendarDays, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon,
+  LayoutDashboard, Utensils, CalendarDays, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon, BarChart3,
 } from "lucide-react";
 import { useWeather } from "./api";
 import { nowNsk, fmtRu, WEEKDAYS } from "./types";
 import { DashboardSection } from "./sections/dashboard";
 import { CanteenSection } from "./sections/canteen";
+import { AnalyticsSection } from "./sections/analytics";
 import { ScheduleSection } from "./sections/schedule";
 import { DutySection } from "./sections/duty";
 import { CounselorsSection } from "./sections/counselors";
@@ -25,6 +26,7 @@ import { DocumentSection } from "./sections/document";
 const TABS = [
   { id: "dashboard", label: "Главная", icon: LayoutDashboard },
   { id: "canteen", label: "Столовая", icon: Utensils },
+  { id: "analytics", label: "Аналитика", icon: BarChart3 },
   { id: "schedule", label: "Расписание", icon: CalendarDays },
   { id: "duty", label: "Дежурства", icon: BrushCleaning },
   { id: "counselors", label: "Вожатые", icon: MoonStar },
@@ -35,6 +37,8 @@ const TABS = [
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
+
+const TAB_IDS = TABS.map((t) => t.id) as readonly TabId[];
 
 function LiveClock() {
   const [time, setTime] = useState("");
@@ -80,13 +84,44 @@ export default function SuncApp() {
   const now = nowNsk();
   const todayLabel = `${WEEKDAYS[now.getUTCDay()]}, ${fmtRu(now)}`;
 
+  const navigate = useCallback((next: string) => {
+    if ((TAB_IDS as readonly string[]).includes(next)) setTab(next as TabId);
+  }, []);
+
+  // Глубокая ссылка ?tab=… (PWA-шорткаты / «Поделиться»).
+  // Применяется после монтирования (вне синхронного тела эффекта),
+  // чтобы не было рассинхрона гидратации с серверным HTML.
+  useEffect(() => {
+    const applyDeepLink = () => {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      navigate(t ?? "dashboard");
+    };
+    const timer = window.setTimeout(applyDeepLink, 0);
+    return () => window.clearTimeout(timer);
+  }, [navigate]);
+
+  // Горячие клавиши: Alt+1..9, Alt+0 — переключение вкладок
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (!/^[0-9]$/.test(e.key)) return;
+      e.preventDefault();
+      const idx = e.key === "0" ? 9 : Number(e.key) - 1;
+      if (idx >= 0 && idx < TABS.length) setTab(TABS[idx].id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="app-warm-bg flex min-h-screen flex-col">
       {/* Шапка */}
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-extrabold text-white shadow-md shadow-amber-500/25">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-extrabold text-white shadow-md shadow-amber-500/25 transition-transform duration-300 hover:scale-105">
               ФМШ
             </div>
             <div className="min-w-0">
@@ -98,7 +133,7 @@ export default function SuncApp() {
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <div className="hidden items-center gap-2 rounded-xl border border-border/60 bg-secondary/40 px-3 py-1.5 sm:flex">
+            <div className="hidden items-center gap-2 rounded-xl border border-border/60 bg-secondary/40 px-3 py-1.5 transition-colors hover:border-primary/30 sm:flex">
               <span className="text-lg leading-none select-none" aria-hidden>
                 {weather.data?.current.icon ?? "⛅"}
               </span>
@@ -122,18 +157,19 @@ export default function SuncApp() {
         {/* Навигация */}
         <nav className="mx-auto max-w-6xl px-4 sm:px-6" aria-label="Разделы">
           <div className="flex gap-1 overflow-x-auto no-scrollbar pb-2">
-            {TABS.map(({ id, label, icon: Icon }) => (
+            {TABS.map(({ id, label, icon: Icon }, i) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
                 aria-current={tab === id ? "page" : undefined}
-                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-medium transition-all ${
+                title={`${label} (Alt+${i === 9 ? 0 : i + 1})`}
+                className={`flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3.5 text-sm font-medium outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring ${
                   tab === id
                     ? "bg-primary text-primary-foreground shadow-sm"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className={`h-4 w-4 transition-transform duration-200 ${tab === id ? "scale-110" : ""}`} />
                 <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
@@ -151,8 +187,9 @@ export default function SuncApp() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
           >
-            {tab === "dashboard" && <DashboardSection onNavigate={(t) => setTab(t as TabId)} />}
+            {tab === "dashboard" && <DashboardSection onNavigate={navigate} />}
             {tab === "canteen" && <CanteenSection />}
+            {tab === "analytics" && <AnalyticsSection />}
             {tab === "schedule" && <ScheduleSection />}
             {tab === "duty" && <DutySection />}
             {tab === "counselors" && <CounselorsSection />}
@@ -180,8 +217,8 @@ export default function SuncApp() {
                 </a>
                 , Open-Meteo/wttr.in
               </p>
-              <p className="text-[11px] text-muted-foreground/70">
-                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · Эталонный FastAPI-бэкенд: папка fastapi-backend/
+              <p className="text-[11px] text-muted-foreground/80">
+                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · горячие клавиши: Alt+1…0 · Эталонный FastAPI: fastapi-backend/
               </p>
             </div>
             <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/5 text-primary">

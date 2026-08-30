@@ -8,8 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   CloudSun, Clock, Utensils, BrushCleaning, MoonStar, Newspaper, ArrowRight, Flame, Wind, Droplets, Sunrise, Sunset,
 } from "lucide-react";
-import { useBells, useDuty, useCounselors, useMenu, useNews, useWeather } from "../api";
-import { ErrorCard, LoadingBlock, SectionCard, humanDate } from "../shared";
+import { useBells, useDuty, useCounselors, useMenu, useMenuStats, useNews, useWeather } from "../api";
+import { ErrorCard, LoadingBlock, MacroPills, SectionCard, humanDate } from "../shared";
 import { Bell, Dish, MealSection } from "../types";
 import { nowNsk, fmtRu } from "../types";
 
@@ -68,12 +68,22 @@ export function BellNow({ bells, loading }: { bells: Bell[]; loading: boolean })
       </div>
       <Progress value={progress} className="h-2" />
       <p className="text-xs text-muted-foreground">{detail}</p>
-      <div className="grid grid-cols-2 gap-1.5 text-xs text-muted-foreground">
-        {bells.slice(0, 6).map((b, i) => (
-          <span key={i} className="tabular-nums">
-            {b.begin}–{b.end}
-          </span>
-        ))}
+      <div className="grid grid-cols-2 gap-1.5">
+        {bells.slice(0, 6).map((b, i) => {
+          const isCurrent = current === b;
+          return (
+            <span
+              key={i}
+              className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums transition-colors ${
+                isCurrent
+                  ? "bg-primary/15 font-bold text-primary"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {b.begin}–{b.end}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -146,6 +156,9 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
   const duty = useDuty(fmtRu(nowNsk()));
   const counselors = useCounselors(fmtRu(nowNsk()));
   const news = useNews(4);
+  // Фоновый прогрев кэша статистики питания (раздел «Аналитика»):
+  // первый запрос разбирает PDF-меню за 10 дней и может занять ~30–40 с
+  useMenuStats(10);
 
   const today = fmtRu(nowNsk());
 
@@ -189,7 +202,18 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
           <BellNow bells={bells.data?.bells ?? []} loading={bells.isLoading} />
         </SectionCard>
 
-        <SectionCard title="Калории сегодня" icon={<Flame className="h-4 w-4" />}>
+        <SectionCard
+          title="Калории сегодня"
+          icon={<Flame className="h-4 w-4" />}
+          action={
+            <button
+              onClick={() => onNavigate("analytics")}
+              className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+            >
+              Тренд <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          }
+        >
           {menu.isLoading ? (
             <LoadingBlock lines={2} />
           ) : menu.data ? (
@@ -200,11 +224,7 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
                 </span>
                 <span className="text-sm text-muted-foreground">ккал за день</span>
               </div>
-              <div className="flex flex-wrap gap-1.5 text-xs">
-                <Badge variant="secondary" className="font-medium">Б {menu.data.dayTotals?.protein ?? "—"}</Badge>
-                <Badge variant="secondary" className="font-medium">Ж {menu.data.dayTotals?.fat ?? "—"}</Badge>
-                <Badge variant="secondary" className="font-medium">У {menu.data.dayTotals?.carbs ?? "—"}</Badge>
-              </div>
+              <MacroPills totals={menu.data.dayTotals} size="md" />
               <p className="text-xs text-muted-foreground">Меню на {menu.data.date}</p>
             </div>
           ) : (
@@ -312,13 +332,14 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
                 href={item.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group rounded-xl border border-border/60 bg-secondary/40 p-3 transition-colors hover:border-primary/40 hover:bg-accent"
+                className="group flex flex-col justify-between rounded-xl border border-border/60 bg-secondary/40 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-accent hover:shadow-sm"
               >
-                <p className="text-sm font-medium leading-snug group-hover:text-primary transition-colors">
+                <p className="text-sm font-medium leading-snug transition-colors group-hover:text-primary">
                   {item.title}
                 </p>
-                <p className="mt-1.5 text-xs text-muted-foreground">
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {item.date ?? ""} {item.rubric ? `· ${item.rubric}` : ""}
+                  <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100" />
                 </p>
               </a>
             ))}

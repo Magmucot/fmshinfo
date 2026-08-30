@@ -181,6 +181,31 @@ export interface DocumentResponse {
   error?: string;
 }
 
+export interface DayStats {
+  date: string;
+  kcal: number | null;
+  protein: number | null;
+  fat: number | null;
+  carbs: number | null;
+  meals: Array<{ type: string; kcal: number | null }>;
+  dishes: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface MenuStatsResponse {
+  ok: boolean;
+  days: DayStats[];
+  avg: { kcal: number | null; protein: number | null; fat: number | null; carbs: number | null };
+  min: { date: string | null; kcal: number | null };
+  max: { date: string | null; kcal: number | null };
+  mealAverages: Array<{ type: string; kcal: number; share: number }>;
+  today: string;
+  requestedDays: number;
+  stale: boolean;
+  error?: string;
+}
+
 export const WEEKDAYS = ["Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
 export const WEEKDAYS_SHORT = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 
