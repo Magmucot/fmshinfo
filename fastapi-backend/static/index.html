@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>СУНЦ Инфо — меню, расписание, дежурства и погода</title>
+<style>
+  :root {
+    --bg: #fafaf9; --card: #ffffff; --border: #e7e5e4; --text: #1c1917;
+    --muted: #78716c; --accent: #f59e0b; --accent-dark: #d97706;
+    --accent-soft: #fef3c7; --green: #16a34a; --red: #dc2626; --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+         background: var(--bg); color: var(--text); line-height: 1.55; min-height: 100vh; display: flex; flex-direction: column; }
+  header { background: linear-gradient(135deg, #fffbeb, #fef3c7); border-bottom: 1px solid var(--border); padding: 20px 16px 0; }
+  .head-wrap { max-width: 1080px; margin: 0 auto; }
+  .head-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .logo { width: 52px; height: 52px; border-radius: 14px; background: var(--accent); color: #fff;
+          display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; box-shadow: 0 4px 14px rgba(245,158,11,.35); }
+  h1 { font-size: 1.45rem; letter-spacing: -.02em; }
+  .subtitle { color: var(--muted); font-size: .9rem; }
+  .head-stats { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+  .stat { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 6px 12px; font-size: .8rem; color: var(--muted); }
+  .stat b { color: var(--text); font-size: .95rem; display: block; }
+  nav { display: flex; gap: 4px; overflow-x: auto; max-width: 1080px; margin: 16px auto 0; scrollbar-width: none; }
+  nav::-webkit-scrollbar { display: none; }
+  nav button { border: 1px solid transparent; background: transparent; padding: 10px 16px; border-radius: 12px 12px 0 0;
+               font-size: .92rem; color: var(--muted); cursor: pointer; white-space: nowrap; font-weight: 500; transition: .15s; }
+  nav button:hover { color: var(--text); background: rgba(255,255,255,.6); }
+  nav button.active { background: var(--card); border-color: var(--border); border-bottom-color: var(--card); color: var(--accent-dark); font-weight: 600; }
+  main { flex: 1; max-width: 1080px; width: 100%; margin: 0 auto; padding: 20px 16px 48px; }
+  .grid { display: grid; gap: 16px; }
+  .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: 0 1px 3px rgba(28,25,23,.04); }
+  .card h2 { font-size: 1.05rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .ico { font-size: 1.2rem; }
+  .muted { color: var(--muted); font-size: .85rem; }
+  .badge { display: inline-block; background: var(--accent-soft); color: var(--accent-dark); border-radius: 999px;
+           padding: 2px 10px; font-size: .75rem; font-weight: 600; }
+  .badge.green { background: #dcfce7; color: var(--green); }
+  .badge.gray { background: #f5f5f4; color: var(--muted); }
+  .stale { background: #fef2f2; color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { text-align: left; color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+       padding: 8px 10px; border-bottom: 2px solid var(--border); }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0efee; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .dish-name { font-weight: 500; }
+  .kbju { color: var(--muted); font-size: .78rem; }
+  .ingr { color: #a8a29e; font-size: .75rem; margin-top: 2px; }
+  .meal-head { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 6px; }
+  .meal-head:first-child { margin-top: 0; }
+  .meal-title { font-weight: 700; color: var(--accent-dark); font-size: .95rem; }
+  .totals { font-size: .8rem; color: var(--muted); }
+  select, button.btn { border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: .9rem;
+                        background: #fff; cursor: pointer; }
+  button.btn { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.btn:hover { background: var(--accent-dark); }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .weather-now { display: flex; align-items: center; gap: 18px; }
+  .weather-temp { font-size: 2.6rem; font-weight: 700; letter-spacing: -.03em; }
+  .weather-icon { font-size: 3rem; }
+  .news-item { padding: 10px 0; border-bottom: 1px solid #f0efee; }
+  .news-item:last-child { border-bottom: none; }
+  .news-item a { color: var(--text); text-decoration: none; font-weight: 500; }
+  .news-item a:hover { color: var(--accent-dark); }
+  .news-date { color: var(--muted); font-size: .78rem; }
+  .info-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f0efee; font-size: .9rem; }
+  .info-row:last-child { border-bottom: none; }
+  .skeleton { border-radius: 10px; background: linear-gradient(90deg,#f5f5f4 25%,#eeeae7 50%,#f5f5f4 75%); background-size: 200% 100%;
+              animation: shimmer 1.3s infinite; color: transparent; user-select: none; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 12px 16px; border-radius: 12px; font-size: .9rem; }
+  footer { background: #fff; border-top: 1px solid var(--border); padding: 18px 16px; text-align: center; color: var(--muted); font-size: .8rem; }
+  footer a { color: var(--accent-dark); text-decoration: none; }
+  .hidden { display: none !important; }
+  @media (max-width: 640px) {
+    .weather-temp { font-size: 2rem; }
+    .head-stats { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-wrap">
+    <div class="head-top">
+      <div class="logo">ФМШ</div>
+      <div>
+        <h1>СУНЦ Инфо</h1>
+        <div class="subtitle">Меню · звонки · расписание · дежурства · вожатые · погода</div>
+      </div>
+      <div class="head-stats">
+        <div class="stat">Сейчас в Академгородке <b id="hTemp">…</b></div>
+        <div class="stat">Дата <b id="hDate">…</b></div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button data-tab="menu" class="active">🍽 Меню столовой</button>
+      <button data-tab="bells">🔔 Звонки</button>
+      <button data-tab="schedule">📅 Расписание</button>
+      <button data-tab="duty">🧹 Дежурства</button>
+      <button data-tab="night">🌙 Ночные вожатые</button>
+      <button data-tab="weather">⛅ Погода</button>
+      <button data-tab="news">📰 Новости</button>
+      <button data-tab="info">ℹ️ Инфо</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- МЕНЮ -->
+  <section id="tab-menu" class="grid">
+    <div class="card">
+      <h2><span class="ico">🍽</span> Меню столовой <span class="badge" id="menuDate">загрузка…</span></h2>
+      <div class="controls">
+        <select id="menuDates" onchange="loadMenu(this.value)"></select>
+        <span class="muted" id="menuSubstituted"></span>
+      </div>
+      <div id="menuBody" class="skeleton">загрузка меню…</div>
+      <p class="muted" style="margin-top:12px">Источник: <a href="https://sesc.nsu.ru/sveden/catering" target="_blank" style="color:var(--accent-dark)">sesc.nsu.ru → Питание</a>. Шестиразовое питание: завтрак, обед, полдник, ужин, второй ужин.</p>
+    </div>
+  </section>
+
+  <!-- ЗВОНКИ -->
+  <section id="tab-bells" class="hidden grid cols-2">
+    <div class="card">
+      <h2><span class="ico">🔔</span> Расписание звонков</h2>
+      <div id="bellsBody" class="skeleton">загрузка…</div>
+    </div>
+    <div class="card">
+      <h2><span class="ico">ℹ️</span> Справка</h2>
+      <p class="muted">Учебный день построен из пар по два урока. Между 3-й и 4-й парой — обеденный перерыв (14:10–16:00), после обеда — факультативы и спецкурсы (15:00–16:00).</p>
+      <p class="muted" style="margin-top:10px">Источник: <a href="https://table-sesc.nsu.ru" target="_blank" style="color:var(--accent-dark)">table-sesc.nsu.ru</a> + академический календарь.</p>
+    </div>
+  </section>
+
+  <!-- РАСПИСАНИЕ -->
+  <section id="tab-schedule" class="hidden">
+    <div class="card">
+      <h2><span class="ico">📅</span> Расписание занятий</h2>
+      <div class="controls">
+        <select id="classSelect" onchange="loadSchedule(this.value)"><option>загрузка…</option></select>
+        <span class="muted">Данные: table-sesc.nsu.ru</span>
+      </div>
+      <div id="scheduleBody" class="skeleton">загрузка…</div>
+    </div>
+  </section>
+
+  <!-- ДЕЖУРСТВА -->
+  <section id="tab-duty" class="hidden">
+    <div class="card">
+      <h2><span class="ico">🧹</span> График дежурств</h2>
+      <div class="controls">
+        <select id="dutyDate" onchange="loadDuty(this.value)"></select>
+      </div>
+      <div id="dutyBody" class="skeleton">загрузка…</div>
+      <p class="muted" style="margin-top:12px">График дежурств публикуется на стендах школы; здесь его вносит администратор через <code>POST /api/duty</code>.</p>
+    </div>
+  </section>
+
+  <!-- НОЧНЫЕ ВОЖАТЫЕ -->
+  <section id="tab-night" class="hidden">
+    <div class="card">
+      <h2><span class="ico">🌙</span> Ночные вожатые</h2>
+      <div class="controls">
+        <select id="nightDate" onchange="loadNight(this.value)"></select>
+      </div>
+      <div id="nightBody" class="skeleton">загрузка…</div>
+      <p class="muted" style="margin-top:12px">В общежитиях круглосуточное дежурство воспитателей с обходами. С 20:00 до 8:00 вход — через 1-е общежитие. График вносит администратор.</p>
+    </div>
+  </section>
+
+  <!-- ПОГОДА -->
+  <section id="tab-weather" class="hidden grid cols-2">
+    <div class="card">
+      <h2><span class="ico">⛅</span> Погода в Академгородке</h2>
+      <div id="weatherNow" class="skeleton">загрузка…</div>
+    </div>
+    <div class="card">
+      <h2><span class="ico">📈</span> Прогноз на 3 дня</h2>
+      <div id="weatherForecast" class="skeleton">загрузка…</div>
+    </div>
+  </section>
+
+  <!-- НОВОСТИ -->
+  <section id="tab-news" class="hidden">
+    <div class="card">
+      <h2><span class="ico">📰</span> Новости СУНЦ НГУ</h2>
+      <div id="newsBody" class="skeleton">загрузка…</div>
+    </div>
+  </section>
+
+  <!-- ИНФО -->
+  <section id="tab-info" class="hidden grid cols-2">
+    <div class="card">
+      <h2><span class="ico">📞</span> Контакты</h2>
+      <div id="infoContacts" class="skeleton">загрузка…</div>
+    </div>
+    <div class="card">
+      <h2><span class="ico">🔗</span> Полезные ссылки</h2>
+      <div id="infoLinks" class="skeleton">загрузка…</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  «СУНЦ Инфо» — неофициальный агрегатор. Данные: <a href="https://sesc.nsu.ru" target="_blank">sesc.nsu.ru</a>,
+  <a href="https://table-sesc.nsu.ru" target="_blank">table-sesc.nsu.ru</a>, Open-Meteo ·
+  СУНЦ НГУ, ул. Пирогова, здание 4 · Эталонная реализация на FastAPI
+</footer>
+
+<script>
+const API = "";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const WEEKDAYS = ["", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"];
+const fmtDate = (d) => d.toLocaleDateString("ru-RU");
+
+function err(e) { return `<div class="error-box">⚠️ ${esc(e.message || "Источник временно недоступен")}</div>`; }
+
+async function jget(url) {
+  const r = await fetch(url);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || `HTTP ${r.status}`);
+  return data;
+}
+
+/* ---------- Навигация ---------- */
+document.querySelectorAll("#nav button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#nav button").forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    document.querySelectorAll("main > section").forEach((s) => s.classList.add("hidden"));
+    $("#tab-" + b.dataset.tab).classList.remove("hidden");
+    ({ menu: loadMenuList, bells: loadBells, schedule: loadClasses, duty: loadDutyList,
+       night: loadNightList, weather: loadWeather, news: loadNews, info: loadInfo })[b.dataset.tab]?.();
+  };
+});
+
+/* ---------- Меню ---------- */
+let menuDatesLoaded = false;
+async function loadMenuList() {
+  if (!menuDatesLoaded) { await loadMenu(); }
+}
+async function loadMenu(date) {
+  const body = $("#menuBody");
+  body.className = "skeleton";
+  try {
+    const m = await jget(`${API}/api/menu${date ? `?date=${encodeURIComponent(date)}` : ""}`);
+    $("#menuDate").textContent = m.date || "—";
+    $("#menuSubstituted").textContent = m.substituted ? `меню на ${m.requestedDate} не опубликовано — показано ближайшее` : "";
+    const sel = $("#menuDates");
+    if (m.availableDates?.length && sel.options.length !== m.availableDates.length) {
+      sel.innerHTML = m.availableDates.map((d) => `<option ${d === m.date ? "selected" : ""}>${esc(d)}</option>`).join("");
+      menuDatesLoaded = true;
+    }
+    body.className = "";
+    body.innerHTML = (m.meals || []).map((meal) => `
+      <div class="meal-head"><span class="meal-title">${esc(meal.type)}</span>
+        <span class="totals">${meal.totals?.kcal ? `итого ${meal.totals.kcal} ккал` : ""}</span></div>
+      <table><tbody>${(meal.dishes || []).map((d) => `
+        <tr><td style="width:64px;color:var(--muted)">${esc(d.weight ?? "")} г</td>
+        <td><div class="dish-name">${esc(d.name)}</div>
+          ${d.kcal ? `<div class="kbju">${d.kcal} ккал${d.protein ? ` · Б ${d.protein} · Ж ${d.fat} · У ${d.carbs}` : ""}</div>` : ""}
+          ${d.ingredients ? `<div class="ingr">${esc(d.ingredients)}</div>` : ""}</td></tr>`).join("")}
+      </tbody></table>`).join("") || "<p class='muted'>Меню пока не опубликовано.</p>";
+    if (m.stale) body.insertAdjacentHTML("afterbegin", `<div class="error-box">Данные из кэша (источник недоступен)</div>`);
+  } catch (e) { body.className = ""; body.innerHTML = err(e); }
+}
+
+/* ---------- Звонки ---------- */
+async function loadBells() {
+  const el = $("#bellsBody");
+  try {
+    const b = await jget(`${API}/api/bells`);
+    el.className = "";
+    el.innerHTML = `<table><thead><tr><th>Пара</th><th>Начало</th><th>Конец</th></tr></thead><tbody>
+      ${(b.bells || []).map((x) => `<tr><td>${esc(x.pairName || "—")}</td><td><b>${esc(x.begin)}</b></td><td><b>${esc(x.end)}</b></td></tr>`).join("")}
+    </tbody></table>`;
+  } catch (e) { el.className = ""; el.innerHTML = err(e); }
+}
+
+/* ---------- Расписание ---------- */
+let classesLoaded = false;
+async function loadClasses() {
+  if (!classesLoaded) {
+    try {
+      const c = await jget(`${API}/api/classes`);
+      $("#classSelect").innerHTML = (c.classes || []).map((n) => `<option>${esc(n)}</option>`).join("");
+      classesLoaded = true;
+      if (c.classes?.[0]) loadSchedule(c.classes[0]);
+    } catch (e) { $("#scheduleBody").className = ""; $("#scheduleBody").innerHTML = err(e); }
+  }
+}
+async function loadSchedule(group) {
+  const el = $("#scheduleBody");
+  el.className = "skeleton";
+  try {
+    const s = await jget(`${API}/api/schedule?group=${encodeURIComponent(group)}`);
+    el.className = "";
+    el.innerHTML = [1, 2, 3, 4, 5, 6].map((wd) => {
+      const lessons = (s.days?.[String(wd)] || []).slice().sort((a, b) => a.begin.localeCompare(b.begin));
+      return `<div class="meal-head"><span class="meal-title">${WEEKDAYS[wd]}</span>
+        <span class="totals">${lessons.length} уроков</span></div>
+        ${lessons.length ? `<table><tbody>${lessons.map((l) => `
+          <tr><td style="width:96px;color:var(--muted)">${esc(l.begin)}–${esc(l.end)}</td>
+          <td><div class="dish-name">${esc(l.lesson)}</div>
+          <div class="kbju">${esc(l.teacher || "")}${l.classroom ? ` · ауд. ${esc(l.classroom)}` : ""}${(l.classes || []).length > 1 ? ` · ${(l.classes || []).join(", ")}` : ""}</div></td></tr>`).join("")}
+        </tbody></table>` : `<p class="muted">Нет занятий</p>`}`;
+    }).join("");
+  } catch (e) { el.className = ""; el.innerHTML = err(e); }
+}
+
+/* ---------- Дежурства / вожатые (7 дней) ---------- */
+function fillDateSelect(sel, values, onload) {
+  sel.innerHTML = values.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join("");
+  sel.onchange = () => onload(sel.value);
+  onload(sel.value);
+}
+async function loadDutyList() {
+  const days = [...Array(7)].map((_, i) => fmtDate(new Date(Date.now() + i * 864e5)));
+  fillDateSelect($("#dutyDate"), days, loadDuty);
+}
+async function loadDuty(date) {
+  const el = $("#dutyBody");
+  el.className = "skeleton";
+  try {
+    const d = await jget(`${API}/api/duty?date=${encodeURIComponent(date)}`);
+    el.className = "";
+    el.innerHTML = d.count ? `<table><thead><tr><th>Тип</th><th>Класс</th><th>Время</th><th>Ответственный</th></tr></thead><tbody>
+      ${d.items.map((x) => `<tr><td><span class="badge">${esc(x.dutyType)}</span></td><td><b>${esc(x.className || "—")}</b></td>
+      <td>${esc(x.timeInterval || "—")}</td><td>${esc(x.responsible || "—")}${x.notes ? `<div class="ingr">${esc(x.notes)}</div>` : ""}</td></tr>`).join("")}
+    </tbody></table>` : "<p class='muted'>На эту дату дежурства не внесены (данные добавляет администратор).</p>";
+  } catch (e) { el.className = ""; el.innerHTML = err(e); }
+}
+async function loadNightList() {
+  const days = [...Array(7)].map((_, i) => fmtDate(new Date(Date.now() + i * 864e5)));
+  fillDateSelect($("#nightDate"), days, loadNight);
+}
+async function loadNight(date) {
+  const el = $("#nightBody");
+  el.className = "skeleton";
+  try {
+    const d = await jget(`${API}/api/night-counselors?date=${encodeURIComponent(date)}`);
+    el.className = "";
+    el.innerHTML = d.count ? `<table><thead><tr><th>Общежитие</th><th>Вожатый</th><th>Этаж</th><th>Телефон</th></tr></thead><tbody>
+      ${d.items.map((x) => `<tr><td><span class="badge">${esc(x.dormitory)}</span></td><td><b>${esc(x.counselorName)}</b></td>
+      <td>${esc(x.floor || "—")}</td><td>${esc(x.phone || "—")}</td></tr>`).join("")}
+    </tbody></table>` : "<p class='muted'>На эту дату график не внесён (данные добавляет администратор).</p>";
+  } catch (e) { el.className = ""; el.innerHTML = err(e); }
+}
+
+/* ---------- Погода ---------- */
+async function loadWeather() {
+  const now = $("#weatherNow"), fc = $("#weatherForecast");
+  try {
+    const w = await jget(`${API}/api/weather`);
+    now.className = "";
+    now.innerHTML = `<div class="weather-now">
+      <div class="weather-icon">${w.current?.icon || "⛅"}</div>
+      <div><div class="weather-temp">${w.current?.temperature ?? "—"}°C</div>
+      <div class="muted">${esc(w.current?.description || "")}${w.current?.apparent != null ? ` · ощущается ${w.current.apparent}°` : ""}</div>
+      <div class="muted">${w.current?.humidity != null ? `влажность ${w.current.humidity}%` : ""}${w.current?.windSpeed != null ? ` · ветер ${w.current.windSpeed} м/с` : ""}</div></div></div>
+      ${w.current?.sunrise ? `<p class="muted" style="margin-top:10px">🌅 Рассвет ${esc(w.current.sunrise)} · 🌇 Закат ${esc(w.current.sunset)}</p>` : ""}`;
+    $("#hTemp").textContent = `${w.current?.temperature ?? "—"}°C`;
+    fc.className = "";
+    fc.innerHTML = (w.forecast || []).map((f) => `
+      <div class="info-row"><span>${f.icon || ""} ${esc(f.day || "")}<div class="muted">${esc(f.description || "")}</div></span>
+      <span><b>${f.tempMax ?? "—"}° / ${f.tempMin ?? "—"}°</b><div class="muted">осадки ${f.precipitationProbability != null ? f.precipitationProbability + "%" : "—"}</div></span></div>`).join("");
+  } catch (e) { now.className = ""; fc.className = ""; now.innerHTML = err(e); fc.innerHTML = ""; }
+}
+
+/* ---------- Новости ---------- */
+async function loadNews() {
+  const el = $("#newsBody");
+  try {
+    const n = await jget(`${API}/api/news?limit=10`);
+    el.className = "";
+    el.innerHTML = (n.items || []).map((x) => `<div class="news-item">
+      <a href="${esc(x.url)}" target="_blank">${esc(x.title)}</a>
+      <div class="news-date">${esc(x.date || "")}${x.rubric ? ` · ${esc(x.rubric)}` : ""}</div></div>`).join("");
+  } catch (e) { el.className = ""; el.innerHTML = err(e); }
+}
+
+/* ---------- Инфо ---------- */
+async function loadInfo() {
+  try {
+    const i = await jget(`${API}/api/info`);
+    $("#infoContacts").className = "";
+    $("#infoContacts").innerHTML = (i.contacts || []).map((c) => `<div class="info-row">
+      <span>${esc(c.title)}${c.note ? `<div class="muted">${esc(c.note)}</div>` : ""}</span>
+      <span style="text-align:right">${c.phone ? `<b>${esc(c.phone)}</b>` : ""}${c.email ? `<div class="muted">${esc(c.email)}</div>` : ""}</span></div>`).join("");
+    $("#infoLinks").className = "";
+    $("#infoLinks").innerHTML = (i.links || []).map((l) => `<div class="info-row"><a href="${esc(l.url)}" target="_blank" style="color:var(--accent-dark);text-decoration:none">${esc(l.title)} ↗</a><span class="muted">${esc(l.note || "")}</span></div>`).join("")
+      + `<p class="muted" style="margin-top:10px">${esc(i.adminSchedule || "")}</p>`;
+  } catch (e) { $("#infoContacts").className = ""; $("#infoContacts").innerHTML = err(e); }
+}
+
+/* ---------- Старт ---------- */
+$("#hDate").textContent = fmtDate(new Date());
+loadMenu();
+loadWeather();
+</script>
+</body>
+</html>

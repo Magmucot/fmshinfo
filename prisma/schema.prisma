@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// График дежурств классов — онлайн не публикуется (см. docs/sunc-info-analysis.md, разд. 3.4),
+// вводится администратором через POST /api/duty (заголовок X-Admin-Key)
+model DutyEntry {
+  id           Int      @id @default(autoincrement())
+  date         String // ДД.ММ.ГГГГ
+  dutyType     String   @default("столовая") // столовая | корпус | общежитие | медпункт | прочее
+  className    String? // например «10-2»
+  responsible  String? // ФИО ответственного воспитателя
+  timeInterval String? // например «после 3 урока»
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+// Ночные вожатые (воспитатели) по общежитиям — ручной ввод (разд. 3.5)
+model NightCounselor {
+  id            Int      @id @default(autoincrement())
+  date          String // ДД.ММ.ГГГГ
+  dormitory     String // Общежитие №1 | Общежитие №2
+  counselorName String
+  phone         String?
+  floor         String? // например «2–3 этажи»
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+// Обратная связь с сайта
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  name      String
+  contact   String
+  message   String
+  createdAt DateTime @default(now())
+}
