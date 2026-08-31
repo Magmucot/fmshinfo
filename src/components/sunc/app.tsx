@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard, Utensils, CalendarDays, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon,
+  LayoutDashboard, Utensils, CalendarDays, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon, BookOpen,
 } from "lucide-react";
 import { useWeather } from "./api";
 import { nowNsk, fmtRu, WEEKDAYS_SHORT } from "./types";
@@ -22,6 +22,7 @@ import { WeatherSection } from "./sections/weather";
 import { NewsSection } from "./sections/news";
 import { InfoSection } from "./sections/info";
 import { DocumentSection } from "./sections/document";
+import { GuideSection } from "./sections/guide";
 
 const TABS = [
   { id: "dashboard", label: "Главная", icon: LayoutDashboard },
@@ -33,6 +34,7 @@ const TABS = [
   { id: "news", label: "Новости", icon: Newspaper },
   { id: "info", label: "Инфо", icon: Info },
   { id: "document", label: "Документ", icon: FileText },
+  { id: "guide", label: "Гайд", icon: BookOpen },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -117,9 +119,10 @@ export default function SuncApp() {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (!/^[1-9]$/.test(e.key)) return;
+      if (!/^[0-9]$/.test(e.key)) return;
       e.preventDefault();
-      const idx = Number(e.key) - 1;
+      // Alt+0 → десятая вкладка (Гайд), Alt+1…9 → вкладки 1…9
+      const idx = e.key === "0" ? 9 : Number(e.key) - 1;
       if (idx < TABS.length) setTab(TABS[idx].id);
     };
     window.addEventListener("keydown", onKey);
@@ -213,6 +216,7 @@ export default function SuncApp() {
             {tab === "news" && <NewsSection />}
             {tab === "info" && <InfoSection />}
             {tab === "document" && <DocumentSection />}
+            {tab === "guide" && <GuideSection onNavigate={navigate} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -234,7 +238,7 @@ export default function SuncApp() {
                 , Open-Meteo/wttr.in
               </p>
               <p className="text-[11px] text-muted-foreground/80">
-                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · горячие клавиши: Alt+1…9 · Эталонный FastAPI: fastapi-backend/
+                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · горячие клавиши: Alt+1…0 · гайд — вкладка «Гайд»
               </p>
             </div>
             <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/5 text-primary">

@@ -125,7 +125,8 @@ export function InfoSection() {
             <li className="flex gap-2.5 text-sm leading-relaxed">
               <Keyboard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <span>
-                <span className="font-semibold">Горячие клавиши:</span> Alt+1…9 — быстрое переключение разделов
+                <span className="font-semibold">Горячие клавиши:</span> Alt+1…0 — быстрое
+                переключение разделов. Полная инструкция — во вкладке «Гайд»
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed">

@@ -63,6 +63,11 @@
       "name": "Погода",
       "url": "/?tab=weather",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Гайд",
+      "url": "/?tab=guide",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }
