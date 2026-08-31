@@ -60,6 +60,11 @@
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
+      "name": "Мероприятия",
+      "url": "/?tab=events",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
       "name": "Погода",
       "url": "/?tab=weather",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]

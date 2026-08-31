@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, ExternalLink, Info, Mail, Phone, Send, Sparkles, Keyboard, Download, Utensils, Flame, Share2, GitBranch, Bot } from "lucide-react";
+import { Building2, ExternalLink, Info, Mail, Phone, Send, Sparkles, Keyboard, Download, Utensils, Flame, Share2, GitBranch, Bot, CalendarClock } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useInfo, sendFeedback } from "../api";
 import { ErrorCard, LoadingBlock, SectionCard, EmptyState } from "../shared";
@@ -148,6 +148,13 @@ export function InfoSection() {
               <span>
                 <span className="font-semibold">Калькулятор калорий:</span> в разделе «Столовая» → «Аналитика»
                 отмечайте блюда — итоги сохранятся на устройстве
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Календарь мероприятий:</span> линейки, пробные
+                ЕГЭ/ОГЭ, пересдачи и спецкурсы из Google-таблицы школы — с фильтром по классу
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed">

@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  LayoutDashboard, Utensils, CalendarDays, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon, BookOpen,
+  LayoutDashboard, Utensils, CalendarDays, CalendarClock, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, FileText, Sun, Moon, BookOpen,
 } from "lucide-react";
 import { useWeather } from "./api";
 import { nowNsk, fmtRu, WEEKDAYS_SHORT } from "./types";
@@ -16,6 +16,7 @@ import { InstallAppButton } from "./install-banner";
 import { DashboardSection } from "./sections/dashboard";
 import { CanteenSection } from "./sections/canteen";
 import { ScheduleSection } from "./sections/schedule";
+import { EventsSection } from "./sections/events";
 import { DutySection } from "./sections/duty";
 import { CounselorsSection } from "./sections/counselors";
 import { WeatherSection } from "./sections/weather";
@@ -28,6 +29,7 @@ const TABS = [
   { id: "dashboard", label: "Главная", icon: LayoutDashboard },
   { id: "canteen", label: "Столовая", icon: Utensils },
   { id: "schedule", label: "Расписание", icon: CalendarDays },
+  { id: "events", label: "Мероприятия", icon: CalendarClock },
   { id: "duty", label: "Дежурства", icon: BrushCleaning },
   { id: "counselors", label: "Вожатые", icon: MoonStar },
   { id: "weather", label: "Погода", icon: CloudSun },
@@ -113,7 +115,7 @@ export default function SuncApp() {
     return () => window.clearTimeout(timer);
   }, [navigate]);
 
-  // Горячие клавиши: Alt+1..9 — переключение вкладок
+  // Горячие клавиши: Alt+1…9 — вкладки 1–9, Alt+0 — последняя (Гайд)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -121,8 +123,8 @@ export default function SuncApp() {
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (!/^[0-9]$/.test(e.key)) return;
       e.preventDefault();
-      // Alt+0 → десятая вкладка (Гайд), Alt+1…9 → вкладки 1…9
-      const idx = e.key === "0" ? 9 : Number(e.key) - 1;
+      // Alt+1…9 → вкладки 1…9, Alt+0 → последняя вкладка (Гайд)
+      const idx = e.key === "0" ? TABS.length - 1 : Number(e.key) - 1;
       if (idx < TABS.length) setTab(TABS[idx].id);
     };
     window.addEventListener("keydown", onKey);
@@ -210,6 +212,7 @@ export default function SuncApp() {
               <CanteenSection view={canteenView} onViewChange={setCanteenView} />
             )}
             {tab === "schedule" && <ScheduleSection />}
+            {tab === "events" && <EventsSection />}
             {tab === "duty" && <DutySection />}
             {tab === "counselors" && <CounselorsSection />}
             {tab === "weather" && <WeatherSection />}
@@ -235,7 +238,7 @@ export default function SuncApp() {
                 <a href="https://table-sesc.nsu.ru" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   table-sesc.nsu.ru
                 </a>
-                , Open-Meteo/wttr.in
+                , Open-Meteo/wttr.in, Google Sheets
               </p>
               <p className="text-[11px] text-muted-foreground/80">
                 СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · горячие клавиши: Alt+1…0 · гайд — вкладка «Гайд»

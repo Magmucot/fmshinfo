@@ -95,6 +95,7 @@ export const SCHOOL_INFO = {
     { title: "Официальный сайт СУНЦ НГУ", url: "https://sesc.nsu.ru", note: "Новости, документы, поступление" },
     { title: "Организация питания (меню)", url: "https://sesc.nsu.ru/sveden/catering", note: "Ежедневные PDF-меню столовой" },
     { title: "Расписание занятий (ФМШ)", url: "https://table-sesc.nsu.ru", note: "Классы, преподаватели, аудитории" },
+    { title: "Календарь мероприятий школы", url: "https://docs.google.com/spreadsheets/d/1t8CeC4UvOJrNgXI48fKju1q4iEXJ7bAF/edit?gid=718067972#gid=718067972", note: "Google-таблица: ЕГЭ/ОГЭ, события классов" },
     { title: "Академический календарь", url: "https://sesc.nsu.ru/education/academic-calendar", note: "Звонки, сессии, аттестации" },
     { title: "Официальная группа ВКонтакте", url: "https://vk.com/sescnsu", note: "Оперативные объявления" },
     { title: "Новости школы", url: "https://sesc.nsu.ru/media/news/", note: null },

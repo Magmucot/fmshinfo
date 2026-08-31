@@ -88,8 +88,23 @@ interface InfoResponse {
   school: { name: string; address: string; site: string; email: string };
   contacts: Array<{ title: string; phone: string | null; email: string | null; note: string | null }>;
 }
+interface EventsResponse {
+  ok: boolean;
+  title: string;
+  source: string;
+  classes: string[];
+  days: Array<{ date: string; weekday: string; general: string[]; byClass: Record<string, string[]> }>;
+  eventsTotal: number;
+  error?: string;
+}
 
 /* --------------------------- HTTP-клиент ---------------------------- */
+
+/** «31.08.2026» → метка времени (полдень UTC) */
+function dateTs(s: string): number {
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return m ? Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 12) : 0;
+}
 
 async function api<T>(path: string): Promise<T | null> {
   try {
@@ -283,6 +298,46 @@ export async function infoText(): Promise<string> {
   return lines.join("\n");
 }
 
+/** Мероприятия из Google-таблицы школы → HTML (ближайшие 8, необязательно по классу) */
+export async function eventsText(classFilter?: string): Promise<string> {
+  const data = await api<EventsResponse>("/api/events");
+  if (!data) return "⚠️ Календарь мероприятий временно недоступен.";
+
+  const todayTs = dateTs(fmtRu(nowNsk()));
+  type Flat = { date: string; weekday: string; className: string | null; text: string };
+  const flat: Flat[] = [];
+  for (const d of data.days) {
+    if (dateTs(d.date) < todayTs) continue;
+    for (const t of d.general) flat.push({ date: d.date, weekday: d.weekday, className: null, text: t });
+    for (const [className, texts] of Object.entries(d.byClass)) {
+      if (classFilter && className !== classFilter) continue;
+      for (const t of texts) flat.push({ date: d.date, weekday: d.weekday, className, text: t });
+    }
+  }
+  if (!flat.length) {
+    return classFilter
+      ? `📭 Ближайших мероприятий для класса ${esc(classFilter)} нет.`
+      : "📭 Ближайших мероприятий нет.";
+  }
+
+  const lines = [
+    `📌 <b>Мероприятия${classFilter ? ` · ${esc(classFilter)}` : ""}</b> (ближайшие ${Math.min(8, flat.length)} из ${flat.length})\n`,
+  ];
+  let lastDate = "";
+  for (const e of flat.slice(0, 8)) {
+    if (e.date !== lastDate) {
+      const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+      const dm = `${Number(e.date.slice(0, 2))} ${months[Number(e.date.slice(3, 5)) - 1]}`;
+      const isToday = dateTs(e.date) === todayTs;
+      lines.push(`\n<b>${dm}, ${e.weekday.toLowerCase()}${isToday ? " — сегодня" : ""}:</b>`);
+      lastDate = e.date;
+    }
+    lines.push(e.className === null ? `  📣 ${esc(e.text)}` : `  👥 <b>${esc(e.className)}:</b> ${esc(e.text)}`);
+  }
+  lines.push(`\n📊 Всего в календаре: ${data.eventsTotal} событий · <a href="${esc(data.source)}">Google-таблица</a>`);
+  return lines.join("\n");
+}
+
 /* ------------------------------ Бот --------------------------------- */
 
 const WELCOME = [
@@ -294,6 +349,7 @@ const WELCOME = [
   "📅 /schedule — расписание твоего класса на сегодня (с группами!)",
   "📅 /schedule 10-2 — расписание другого класса",
   "⏰ /tomorrow — расписание на завтра",
+  "📌 /events — ближайшие мероприятия (можно: /events 10-1)",
   "🌤 /weather — погода в Академгородке",
   "📰 /news — новости школы",
   "🧹 /duty — дежурства сегодня",
@@ -328,6 +384,13 @@ function main() {
   bot.command("tomorrow", async (ctx) => {
     const group = ctx.match?.trim() || "10-1";
     await ctx.reply(await scheduleText(group, true), { parse_mode: "HTML" });
+  });
+
+  bot.command("events", async (ctx) => {
+    const arg = ctx.match?.trim();
+    const classFilter = arg && /^\d{2}-\d{1,2}$/.test(arg) ? arg : undefined;
+    await ctx.replyWithChatAction("typing");
+    await ctx.reply(await eventsText(classFilter), { parse_mode: "HTML", disable_web_page_preview: true });
   });
 
   bot.command("weather", async (ctx) => {
@@ -365,6 +428,7 @@ function main() {
           { command: "menu", description: "🍽 Меню столовой" },
           { command: "schedule", description: "📅 Расписание класса" },
           { command: "tomorrow", description: "⏰ Расписание на завтра" },
+          { command: "events", description: "📌 Ближайшие мероприятия" },
           { command: "bells", description: "🔔 Звонки" },
           { command: "weather", description: "🌤 Погода" },
           { command: "news", description: "📰 Новости" },

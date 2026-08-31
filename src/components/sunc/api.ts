@@ -9,6 +9,7 @@ import type {
   CounselorsResponse,
   DocumentResponse,
   DutyResponse,
+  EventsResponse,
   InfoResponse,
   MenuResponse,
   MenuStatsResponse,
@@ -115,6 +116,14 @@ export function useDocument() {
     queryKey: ["document"],
     queryFn: () => api<DocumentResponse>("/api/document"),
     staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
+export function useEvents() {
+  return useQuery<EventsResponse>({
+    queryKey: ["events"],
+    queryFn: () => api<EventsResponse>("/api/events"),
+    staleTime: 15 * 60 * 1000,
   });
 }
 

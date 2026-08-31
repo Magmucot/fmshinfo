@@ -6,13 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  CloudSun, Clock, Utensils, BrushCleaning, MoonStar, Newspaper, ArrowRight, Flame, Wind, Droplets, Sunrise, Sunset,
+  CloudSun, Clock, Utensils, BrushCleaning, MoonStar, Newspaper, ArrowRight, Flame, Wind, Droplets, Sunrise, Sunset, CalendarClock, Megaphone, Users,
 } from "lucide-react";
-import { useBells, useDuty, useCounselors, useMenu, useMenuStats, useNews, useWeather } from "../api";
+import { useBells, useDuty, useCounselors, useEvents, useMenu, useMenuStats, useNews, useWeather } from "../api";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, humanDate } from "../shared";
 import { InstallBannerCard } from "../install-banner";
 import { Bell, Dish, MealSection } from "../types";
-import { nowNsk, fmtRu } from "../types";
+import { nowNsk, fmtRu, parseRuDate, ruDayMonth } from "../types";
 
 /** Текущий/следующий звонок с прогрессом */
 export function BellNow({ bells, loading }: { bells: Bell[]; loading: boolean }) {
@@ -157,11 +157,23 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
   const duty = useDuty(fmtRu(nowNsk()));
   const counselors = useCounselors(fmtRu(nowNsk()));
   const news = useNews(4);
+  const events = useEvents();
   // Фоновый прогрев кэша статистики питания (раздел «Аналитика»):
   // первый запрос разбирает PDF-меню за 10 дней и может занять ~30–40 с
   useMenuStats(10);
 
   const today = fmtRu(nowNsk());
+  const todayTs = parseRuDate(today)?.getTime() ?? 0;
+  // Ближайшие 3 события (от сегодня и позже)
+  const upcoming = (events.data?.days ?? [])
+    .filter((d) => (parseRuDate(d.date)?.getTime() ?? 0) >= todayTs)
+    .flatMap((d) => [
+      ...d.general.map((t) => ({ date: d.date, weekday: d.weekday, className: null as string | null, text: t })),
+      ...Object.entries(d.byClass).flatMap(([className, texts]) =>
+        texts.map((t) => ({ date: d.date, weekday: d.weekday, className, text: t }))
+      ),
+    ])
+    .slice(0, 3);
 
   return (
     <div className="space-y-4">
@@ -269,6 +281,42 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
         </SectionCard>
 
         <div className="space-y-4">
+          <SectionCard
+            title="Ближайшие мероприятия"
+            icon={<CalendarClock className="h-4 w-4" />}
+            action={
+              <button
+                onClick={() => onNavigate("events")}
+                className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              >
+                Календарь <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            }
+          >
+            {events.isLoading ? (
+              <LoadingBlock lines={3} />
+            ) : upcoming.length ? (
+              <ul className="space-y-2">
+                {upcoming.map((e, i) => (
+                  <li key={i} className="flex items-start gap-2 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2">
+                    <span className={`mt-0.5 shrink-0 ${e.className === null ? "text-amber-600 dark:text-amber-400" : "text-teal-700 dark:text-teal-400"}`}>
+                      {e.className === null ? <Megaphone className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium leading-snug">{e.text}</p>
+                      <p className="text-[11px] text-muted-foreground tabular-nums">
+                        {ruDayMonth(e.date)} · {e.weekday}
+                        {e.date === today ? " · сегодня" : ""}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Ближайших мероприятий нет</p>
+            )}
+          </SectionCard>
+
           <SectionCard title="Дежурства сегодня" icon={<BrushCleaning className="h-4 w-4" />}>
             {duty.isLoading ? (
               <LoadingBlock lines={2} />
@@ -355,7 +403,7 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
       </SectionCard>
 
       <p className="px-1 text-xs text-muted-foreground">
-        Сегодня {humanDate(today)} · Данные обновляются автоматически: sesc.nsu.ru, table-sesc.nsu.ru, Open-Meteo
+        Сегодня {humanDate(today)} · Данные обновляются автоматически: sesc.nsu.ru, table-sesc.nsu.ru, Open-Meteo, Google Sheets
       </p>
     </div>
   );

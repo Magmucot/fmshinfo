@@ -27,6 +27,7 @@ import {
   BookOpen,
   Bot,
   BrushCleaning,
+  CalendarClock,
   CalendarDays,
   ChevronRight,
   CloudSun,
@@ -182,6 +183,17 @@ const SECTION_DOCS: Array<{
     ],
   },
   {
+    id: "events",
+    icon: CalendarClock,
+    title: "Мероприятия",
+    text: "Календарь школы из Google-таблицы: линейки, пробные ЕГЭ/ОГЭ, пересдачи, спецкурсы.",
+    points: [
+      "Общие события (ЕГЭ/ОГЭ и др.) — всем; события классов — с чипом 8-1 … 11-12",
+      "Фильтр по классу, поиск и переключатель «Прошедшие»; карточка «Ближайшее» сверху",
+      "На Главной — 3 ближайших события; в боте — /events",
+    ],
+  },
+  {
     id: "duty",
     icon: BrushCleaning,
     title: "Дежурства",
@@ -244,6 +256,7 @@ const BOT_COMMANDS: Array<{ cmd: string; args?: string; desc: string }> = [
   { cmd: "/bells", desc: "расписание звонков по парам" },
   { cmd: "/schedule", args: "[класс]", desc: "расписание класса (по умолчанию 10-1)" },
   { cmd: "/tomorrow", desc: "расписание на завтра" },
+  { cmd: "/events", args: "[класс]", desc: "ближайшие мероприятия из Google-таблицы" },
   { cmd: "/weather", desc: "погода сейчас + прогноз на 3 дня" },
   { cmd: "/news", desc: "6 последних новостей школы" },
   { cmd: "/duty", desc: "дежурства на сегодня" },
@@ -257,6 +270,7 @@ const DEEPLINKS: Array<{ tab: string; desc: string }> = [
   { tab: "canteen", desc: "Столовая · Меню" },
   { tab: "analytics", desc: "Столовая · Аналитика" },
   { tab: "schedule", desc: "Расписание" },
+  { tab: "events", desc: "Мероприятия" },
   { tab: "duty", desc: "Дежурства" },
   { tab: "counselors", desc: "Вожатые" },
   { tab: "weather", desc: "Погода" },
@@ -349,9 +363,9 @@ export function GuideSection({ onNavigate }: { onNavigate: (tab: string) => void
               Гайд по порталу «СУНЦ Инфо»
             </h2>
             <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Всё, что нужно ученику ФМШ: меню, расписание с группами, дежурства, вожатые, погода и
-              новости. Ниже — как пользоваться сайтом, установить приложение на телефон и подключить
-              Telegram-бота. Время чтения — 5 минут.
+              Всё, что нужно ученику ФМШ: меню, расписание с группами, мероприятия, дежурства,
+              вожатые, погода и новости. Ниже — как пользоваться сайтом, установить приложение на
+              телефон и подключить Telegram-бота. Время чтения — 5 минут.
             </p>
           </div>
         </div>
@@ -411,7 +425,8 @@ export function GuideSection({ onNavigate }: { onNavigate: (tab: string) => void
               <span>
                 <span className="font-semibold">Данные живые.</span> Меню столовой — из PDF на{" "}
                 <span className="text-primary">sesc.nsu.ru</span>, расписание и звонки — с{" "}
-                <span className="text-primary">table-sesc.nsu.ru</span>, новости — со школьного
+                <span className="text-primary">table-sesc.nsu.ru</span>, мероприятия — из{" "}
+                <span className="text-primary">Google-таблицы школы</span>, новости — со школьного
                 сайта, погода — <span className="text-primary">Open-Meteo</span> для
                 Академгородка. Кэш обновляется автоматически.
               </span>
@@ -450,7 +465,7 @@ export function GuideSection({ onNavigate }: { onNavigate: (tab: string) => void
         num={2}
         icon={<LayoutGrid className="h-5 w-5" />}
         title="Разделы портала"
-        subtitle="Девять вкладок. Нажмите «Открыть», чтобы перейти в раздел прямо из гайда."
+        subtitle="Десять вкладок. Нажмите «Открыть», чтобы перейти в раздел прямо из гайда."
       >
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {SECTION_DOCS.map((doc) => {
@@ -627,6 +642,10 @@ TELEGRAM_BOT_TOKEN=ваш_токен bun run dev`}
             />
             <Step n={3} title="Готово" text="Бот ответит на /start. Подробности — в mini-services/tg-bot/README.md." />
           </ol>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            Пример для мероприятий: <Kbd>/events</Kbd> — ближайшие для всех, <Kbd>/events 10-1</Kbd> —
+            только ваш класс плюс общие (линейки, пробные ЕГЭ).
+          </p>
         </SectionCard>
       </Chapter>
 
@@ -645,18 +664,23 @@ TELEGRAM_BOT_TOKEN=ваш_токен bun run dev`}
               фокус в поле ввода (чтобы не мешать печати).
             </p>
             <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {DEEPLINKS.map((d, i) => (
+              {DEEPLINKS.filter((d) => d.tab !== "document" && d.tab !== "guide").map((d, i) => (
                 <div
                   key={d.tab}
                   className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-1.5 text-xs"
                 >
                   <span className="min-w-0 truncate font-medium">{d.desc}</span>
-                  <Kbd>Alt+{(i + 1) % 10}</Kbd>
+                  <Kbd>Alt+{i + 1}</Kbd>
                 </div>
               ))}
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-secondary/30 px-3 py-1.5 text-xs">
+                <span className="min-w-0 truncate font-medium">Гайд</span>
+                <Kbd>Alt+0</Kbd>
+              </div>
             </div>
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Alt+10 недоступен на клавиатуре, поэтому десятая вкладка — это Alt+0 (Гайд).
+              Клавиши соответствуют вкладкам 1–9; Alt+0 — последняя вкладка «Гайд». Раздел
+              «Документ» открывается мышкой или ссылкой ?tab=document.
             </p>
           </SectionCard>
 

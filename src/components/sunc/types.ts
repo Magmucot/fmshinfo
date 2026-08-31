@@ -181,6 +181,46 @@ export interface DocumentResponse {
   error?: string;
 }
 
+export interface EventDay {
+  /** dd.mm.yyyy */
+  date: string;
+  weekday: string;
+  /** Общие события («ЕГЭ/ОГЭ и др.») */
+  general: string[];
+  /** События по классам */
+  byClass: Record<string, string[]>;
+}
+
+export interface EventsResponse {
+  ok: boolean;
+  stale: boolean;
+  source: string;
+  title: string;
+  yearFrom: number;
+  yearTo: number;
+  classes: string[];
+  days: EventDay[];
+  count: number;
+  eventsTotal: number;
+  updatedAt: string;
+  error?: string;
+}
+
+/** «31.08.2026» → Date (полдень UTC, чтобы избежать краёв таймзон) */
+export function parseRuDate(dateStr: string): Date | null {
+  const m = dateStr.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 12, 0, 0));
+}
+
+/** «31.08.2026» → «31 августа» */
+export function ruDayMonth(dateStr: string): string {
+  const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  const m = dateStr.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return dateStr;
+  return `${Number(m[1])} ${months[Number(m[2]) - 1]}`;
+}
+
 export interface DayStats {
   date: string;
   kcal: number | null;
