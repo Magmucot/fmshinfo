@@ -167,3 +167,19 @@ Stage Summary:
 - Мероприятия 2026-2027: 597 событий, 187 дней, общие (ЕГЭ/ОГЭ) + персональные по 25 классам
 - Ограничения: (1) таблица должна оставаться публичной (CSV-экспорт без авторизации); (2) если школа сменит структуру листа (столбцы/заголовки), парсер вернёт понятную ошибку → retry/stale; (3) события июля 2027+ в блоке B могут принадлежать следующему году — отображаются как есть
 - Следующие итерации: подписка на «мероприятие завтра» в боте; фильтр «только общие»; экспорт в календарь (ICS); сравнение списка классов таблицы с table-sesc
+
+---
+Task ID: 9
+Agent: Z.ai Code (main)
+Task: Написать в чат гайд по хостингу и развёртыванию «СУНЦ Инфо» (нужен ли свой сервер, как поднять, можно ли бесплатно)
+
+Work Log:
+- Изучены артефакты деплоя: package.json (build → standalone, start → bun .next/standalone/server.js), next.config.ts (output: "standalone"), prisma/schema.prisma (sqlite), mini-services/tg-bot (grammY long polling, health 3003, PORTAL_API), Caddyfile (песочница-only gateway), env: DATABASE_URL / ADMIN_KEY / TELEGRAM_BOT_TOKEN
+- Проверено: z-ai-web-dev-sdk в src/ не используется → проект полностью самодостаточен для внешнего хостинга
+- Составлен гайд в чате: 4 компонента для хостинга; 3 пути (A: Vercel+Neon 0₽; B: Oracle Always Free / домашний сервер + Cloudflare Tunnel 0₽; C: VPS со systemd + Caddy + crontab); команды, systemd-юниты, Caddyfile, крон прогрева/бэкапа, таблица стоимости, чек-лист
+- Cron: удалён отключённый 348103, создан 348161 (webDevReview, каждые 15 мин, Asia/Krasnoyarsk)
+
+Stage Summary:
+- Код не менялся; задача документационная (гайд в чат)
+- Ключевой вывод: SQLite-файл + long polling бота → проще всего VPS/домашний сервер (SQLite и polling работают «как есть»); на serverless нужны доработки: provider postgresql (Neon) или Turso, бот → webhook-роут, keepalive через GitHub Actions
+- Риски/next: если пользователь выберет Vercel-путь — нужна доработка (миграция Prisma-провайдера, webhook-роут бота, in-memory кэш короткоживущий на lambda)
