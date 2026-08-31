@@ -1,6 +1,6 @@
 /* СУНЦ Инфо — service worker: офлайн-фолбэк + кэш статики (network-first) */
 
-const VERSION = "sunc-info-v2";
+const VERSION = "sunc-info-v3";
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/icon-512.png", "/manifest.webmanifest"];

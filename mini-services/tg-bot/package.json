@@ -1,0 +1,13 @@
+{
+  "name": "sunc-info-tg-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram-бот «СУНЦ Инфо»: меню столовой, звонки, расписание с группами, погода, новости, дежурства, вожатые. Данные берёт из API портала (localhost:3000).",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "grammy": "^1.46.0"
+  }
+}

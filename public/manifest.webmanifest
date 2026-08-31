@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "СУНЦ Инфо — портал ученика ФМШ",
   "short_name": "СУНЦ Инфо",
   "description": "Меню столовой, расписание звонков и занятий, дежурства, ночные вожатые, погода в Академгородке и новости СУНЦ НГУ (ФМШ).",
@@ -29,6 +30,22 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/narrow-dashboard.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Главный экран: погода, звонки, калории, дежурства"
+    },
+    {
+      "src": "/screenshots/narrow-canteen.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Меню столовой с КБЖУ и фильтрами"
     }
   ],
   "shortcuts": [

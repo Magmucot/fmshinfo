@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useBells, useDuty, useCounselors, useMenu, useMenuStats, useNews, useWeather } from "../api";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, humanDate } from "../shared";
+import { InstallBannerCard } from "../install-banner";
 import { Bell, Dish, MealSection } from "../types";
 import { nowNsk, fmtRu } from "../types";
 
@@ -164,8 +165,11 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
 
   return (
     <div className="space-y-4">
+      {/* Подсказка об установке приложения (PWA) */}
+      <InstallBannerCard />
+
       {/* Строка 1: погода + звонки + калории */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <SectionCard title="Погода в Академгородке" icon={<CloudSun className="h-4 w-4" />}>
           <WeatherMini weather={weather.data} loading={weather.isLoading} />
           {weather.data ? (
@@ -209,8 +213,9 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
             <button
               onClick={() => onNavigate("analytics")}
               className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+              title="Столовая → Аналитика"
             >
-              Тренд <ArrowRight className="h-3.5 w-3.5" />
+              Аналитика <ArrowRight className="h-3.5 w-3.5" />
             </button>
           }
         >
@@ -234,7 +239,7 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
       </div>
 
       {/* Строка 2: меню + сегодня (дежурства/вожатые) */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <SectionCard
           className="lg:col-span-2"
           title="Меню столовой сегодня"
@@ -251,7 +256,7 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
           {menu.isLoading ? (
             <LoadingBlock lines={4} />
           ) : menu.data && menu.data.meals.length ? (
-            <div className="grid gap-2.5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               {menu.data.meals.map((meal, i) => (
                 <MealPreview key={i} meal={meal} />
               ))}
@@ -325,7 +330,7 @@ export function DashboardSection({ onNavigate }: { onNavigate: (tab: string) => 
         {news.isLoading ? (
           <LoadingBlock lines={3} />
         ) : news.data ? (
-          <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {news.data.items.slice(0, 4).map((item) => (
               <a
                 key={item.id}

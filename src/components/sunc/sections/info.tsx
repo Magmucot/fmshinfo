@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Building2, ExternalLink, Info, Mail, Phone, Send, Sparkles, Keyboard, Download, Utensils, Flame, Share2 } from "lucide-react";
+import { Building2, ExternalLink, Info, Mail, Phone, Send, Sparkles, Keyboard, Download, Utensils, Flame, Share2, GitBranch, Bot } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useInfo, sendFeedback } from "../api";
 import { ErrorCard, LoadingBlock, SectionCard, EmptyState } from "../shared";
@@ -39,7 +39,7 @@ function FeedbackForm() {
 
   return (
     <div className="grid gap-3.5">
-      <div className="grid gap-3.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="fb-name">Имя</Label>
           <Input id="fb-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Мария" />
@@ -74,7 +74,7 @@ export function InfoSection() {
 
   if (info.isLoading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard>
           <LoadingBlock lines={5} />
         </SectionCard>
@@ -95,7 +95,7 @@ export function InfoSection() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard title="О школе" icon={<Building2 className="h-4 w-4" />}>
           <p className="text-sm font-bold leading-snug">{info.data.school.name}</p>
           <p className="mt-2 text-sm text-muted-foreground">{info.data.school.address}</p>
@@ -125,7 +125,7 @@ export function InfoSection() {
             <li className="flex gap-2.5 text-sm leading-relaxed">
               <Keyboard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <span>
-                <span className="font-semibold">Горячие клавиши:</span> Alt+1…0 — быстрое переключение разделов
+                <span className="font-semibold">Горячие клавиши:</span> Alt+1…9 — быстрое переключение разделов
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed">
@@ -145,8 +145,22 @@ export function InfoSection() {
             <li className="flex gap-2.5 text-sm leading-relaxed">
               <Flame className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <span>
-                <span className="font-semibold">Калькулятор калорий:</span> в разделе «Аналитика» отмечайте блюда —
-                итоги сохранятся на устройстве
+                <span className="font-semibold">Калькулятор калорий:</span> в разделе «Столовая» → «Аналитика»
+                отмечайте блюда — итоги сохранятся на устройстве
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Telegram-бот:</span> те же данные — меню, звонки, погода, новости —
+                в боте (модуль mini-services/tg-bot)
+              </span>
+            </li>
+            <li className="flex gap-2.5 text-sm leading-relaxed">
+              <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                <span className="font-semibold">Группы в расписании:</span> параллельные уроки (одно время)
+                автоматически показываются как группы класса
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed">
@@ -160,9 +174,9 @@ export function InfoSection() {
         </SectionCard>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <SectionCard title="Контакты" icon={<Phone className="h-4 w-4" />}>
-          <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {info.data.contacts.map((contact, i) => (
               <div key={i} className="rounded-xl border border-border/60 bg-secondary/30 p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm">
                 <p className="text-xs font-semibold">{contact.title}</p>
@@ -204,7 +218,7 @@ export function InfoSection() {
       </div>
 
       <SectionCard title="Полезные ссылки" icon={<ExternalLink className="h-4 w-4" />}>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {info.data.links.map((link, i) => (
             <a
               key={i}

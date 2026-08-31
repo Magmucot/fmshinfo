@@ -16,25 +16,43 @@ export const SESC_COORDS = { lat: 54.842, lon: 83.098 } as const;
 
 export async function fetchWithTimeout(
   url: string,
-  init: RequestInit & { timeoutMs?: number } = {}
+  init: RequestInit & { timeoutMs?: number; retries?: number } = {}
 ): Promise<Response> {
-  const { timeoutMs = 20000, ...rest } = init;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...rest,
-      signal: controller.signal,
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept-Language": "ru-RU,ru;q=0.9",
-        ...(rest.headers ?? {}),
-      },
-      cache: "no-store",
-    });
-  } finally {
-    clearTimeout(timer);
+  const { timeoutMs = 20000, retries = 2, ...rest } = init;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...rest,
+        signal: controller.signal,
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept-Language": "ru-RU,ru;q=0.9",
+          ...(rest.headers ?? {}),
+        },
+        cache: "no-store",
+      });
+      // 5xx — тоже повод повторить (Битрикс иногда отдаёт 502)
+      if (response.status >= 500 && attempt < retries) {
+        lastError = new Error(`HTTP ${response.status}`);
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error("fetch failed");
 }
 
 /**

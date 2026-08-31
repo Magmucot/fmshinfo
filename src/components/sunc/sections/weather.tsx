@@ -12,7 +12,7 @@ export function WeatherSection() {
 
   if (weather.isLoading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <SectionCard className="lg:col-span-1">
           <LoadingBlock lines={4} />
         </SectionCard>
@@ -38,7 +38,7 @@ export function WeatherSection() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Текущая погода */}
         <SectionCard
           className="lg:col-span-1"
@@ -99,7 +99,7 @@ export function WeatherSection() {
 
         {/* Прогноз */}
         <SectionCard className="lg:col-span-2" title="Прогноз на 3 дня">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {weather.data.forecast.map((day, i) => (
               <div
                 key={i}

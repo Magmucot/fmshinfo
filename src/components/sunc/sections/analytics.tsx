@@ -120,7 +120,7 @@ function KcalChart({
                 {/* Значение над столбцом */}
                 <span
                   className={`h-4 shrink-0 text-[10px] font-bold leading-4 tabular-nums transition-colors ${
-                    isToday ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                    isToday ? "text-primary" : "text-foreground/60 group-hover:text-foreground dark:text-foreground/75"
                   }`}
                 >
                   {d.kcal ?? "—"}
@@ -149,14 +149,14 @@ function KcalChart({
                 <div className="mt-1.5 flex h-8 shrink-0 flex-col items-center justify-start">
                   <span
                     className={`text-[10px] font-semibold leading-4 tabular-nums ${
-                      isToday ? "text-primary" : "text-muted-foreground"
+                      isToday ? "text-primary" : "text-foreground/55 dark:text-foreground/70"
                     }`}
                   >
                     {dayIdx}
                   </span>
                   <span
                     className={`text-[9px] leading-4 uppercase ${
-                      isToday ? "font-bold text-primary" : "text-muted-foreground"
+                      isToday ? "font-bold text-primary" : "text-foreground/50 dark:text-foreground/65"
                     }`}
                   >
                     {weekday}
@@ -379,7 +379,7 @@ export function AnalyticsSection() {
 
       {/* Сводка: средние, мин, макс */}
       {stats.data && !stats.isLoading ? (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-center gap-2 text-muted-foreground">
               <Scale className="h-4 w-4 text-primary" />

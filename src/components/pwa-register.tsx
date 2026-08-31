@@ -1,12 +1,14 @@
 "use client";
 
-/** Регистрация service worker для PWA (офлайн-страница + кэш статики) */
+/** Регистрация service worker + инициализация PWA-установки */
 
 import { useEffect } from "react";
+import { initPwaInstall } from "@/lib/pwa-install";
 
 export function PwaRegister() {
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    initPwaInstall();
+
     if (!("serviceWorker" in navigator)) return;
 
     const register = () => {

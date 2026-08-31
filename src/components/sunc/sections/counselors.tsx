@@ -232,7 +232,7 @@ export function CounselorsSection() {
           <ErrorCard message="Не удалось загрузить график вожатых" onRetry={() => counselors.refetch()} />
         </SectionCard>
       ) : items.length ? (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {items.map((item) => (
             <div
               key={item.id}
@@ -288,7 +288,7 @@ export function CounselorsSection() {
       )}
 
       <SectionCard title="Экстренные контакты" icon={<Phone className="h-4 w-4" />}>
-        <div className="grid gap-2.5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           <div className="rounded-xl bg-secondary/50 p-3">
             <p className="text-xs text-muted-foreground">Дежурный воспитатель / охрана</p>
             <p className="mt-1 text-sm font-semibold">+7 (383) 373-96-41</p>

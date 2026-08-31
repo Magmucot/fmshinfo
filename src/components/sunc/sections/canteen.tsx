@@ -1,6 +1,7 @@
 "use client";
 
-/** Раздел «Столовая»: полное меню на день с КБЖУ, поиском, фильтрами и аллергенами */
+/** Раздел «Столовая»: полное меню на день с КБЖУ, поиском, фильтрами и аллергенами.
+ *  Внутри раздела — переключатель «Меню / Аналитика» (аналитика питания перенесена сюда). */
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -11,17 +12,54 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Utensils, Flame, Info,
+  BarChart3, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Utensils, Flame, Info,
   Search, Share2, X, Leaf, Milk, Wheat, Egg, Fish, Nut, Dumbbell,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useMenu } from "../api";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, StaleBadge, humanDate } from "../shared";
+import type { CanteenView } from "../app";
+import { AnalyticsSection } from "./analytics";
 import type { Dish, MealSection } from "../types";
 import {
   ALLERGENS, DISH_FILTERS, analyzeDish, dishMatchesQuery, menuToShareText, splitHighlight,
 } from "../nutrition";
 import type { DishFilterId } from "../nutrition";
+
+/** Сегментированный переключатель «Меню / Аналитика» вверху раздела «Столовая» */
+function CanteenViewSwitch({ view, onChange }: { view: CanteenView; onChange: (v: CanteenView) => void }) {
+  const items: Array<{ id: CanteenView; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: "menu", label: "Меню", icon: Utensils },
+    { id: "analytics", label: "Аналитика", icon: BarChart3 },
+  ];
+  return (
+    <div
+      role="tablist"
+      aria-label="Режим раздела «Столовая»"
+      className="flex w-full max-w-sm items-center gap-1 rounded-2xl border border-border/70 bg-secondary/40 p-1"
+    >
+      {items.map(({ id, label, icon: Icon }) => {
+        const active = view === id;
+        return (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(id)}
+            className={`flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring ${
+              active
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+            }`}
+          >
+            <Icon className={`h-4 w-4 transition-transform duration-200 ${active ? "scale-110" : ""}`} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 const ALLERGEN_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   milk: Milk,
@@ -173,7 +211,7 @@ function MealBlock({ meal, query, activeFilters }: { meal: MealSection; query: s
           </div>
         ) : null}
       </div>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2">
         {meal.dishes.map((dish, i) => (
           <DishRow key={i} dish={dish} query={query} />
         ))}
@@ -183,11 +221,12 @@ function MealBlock({ meal, query, activeFilters }: { meal: MealSection; query: s
   );
 }
 
-export function CanteenSection() {
+export function CanteenSection({ view = "menu", onViewChange }: { view?: CanteenView; onViewChange?: (v: CanteenView) => void }) {
   const [selectedDate, setSelectedDate] = useState<string>("__today__");
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Set<DishFilterId>>(new Set());
   const menu = useMenu(selectedDate === "__today__" ? undefined : selectedDate);
+  const setView = onViewChange ?? (() => {});
 
   const dates = menu.data?.availableDates ?? [];
   const currentIndex = menu.data ? dates.indexOf(menu.data.date) : -1;
@@ -248,6 +287,13 @@ export function CanteenSection() {
 
   return (
     <div className="space-y-4">
+      {/* Переключатель Меню / Аналитика */}
+      <CanteenViewSwitch view={view} onChange={setView} />
+
+      {view === "analytics" ? (
+        <AnalyticsSection />
+      ) : (
+      <>
       <SectionCard
         title="Меню столовой"
         icon={<Utensils className="h-4 w-4" />}
@@ -488,6 +534,8 @@ export function CanteenSection() {
           )}
         </>
       ) : null}
+      </>
+      )}
     </div>
   );
 }
