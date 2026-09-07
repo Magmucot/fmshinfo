@@ -67,8 +67,8 @@ PAIR_NAMES: dict[int, str] = {
     6: "Шестая пара",
 }
 
-#: Тип занятия из API: 1 — обычный урок, 2 — спецкурс/факультатив
-LESSON_TYPES: dict[int, str] = {1: "урок", 2: "спецкурс"}
+#: Тип занятия из API table-sesc: 1 — лекция, 2 — семинар/практика, 3 — лабораторная
+LESSON_TYPES: dict[int, str] = {1: "лекция", 2: "семинар", 3: "лабораторная"}
 
 #: Дни недели в API расписания: 1 = понедельник … 6 = суббота
 WEEKDAY_NAMES: dict[int, str] = {
@@ -186,20 +186,52 @@ async def get_schedule(
             classroom_obj = lesson.get("classroom") or {}
             teacher_obj = lesson.get("teacher") or {}
             lesson_type = lesson_obj.get("type")
+            lesson_name = str(lesson_obj.get("name") or "—")
+            nl = lesson_name.lower()
+            if "спецкурс" in nl or nl.startswith("ск ") or "спец." in nl:
+                type_name = "спецкурс"
+            elif "факультатив" in nl:
+                type_name = "факультатив"
+            elif "лабораторн" in nl:
+                type_name = "лабораторная"
+            else:
+                type_name = LESSON_TYPES.get(lesson_type, "занятие")
             classes = [
                 str(class_obj.get("name")) for class_obj in (lesson.get("schoolClasses") or []) if class_obj.get("name")
             ]
+            subgroup = None
+            if group:
+                matching = next(
+                    (c for c in (lesson.get("schoolClasses") or []) if str(c.get("name") or "").lower() == group.lower()),
+                    None,
+                )
+                if matching and matching.get("subgroup"):
+                    raw = str(matching["subgroup"])
+                    digits = "".join(ch for ch in raw if ch.isdigit())
+                    subgroup = f"{digits}-я подгруппа" if digits else raw
+            else:
+                first_with_sub = next((c for c in (lesson.get("schoolClasses") or []) if c.get("subgroup")), None)
+                if first_with_sub:
+                    raw = str(first_with_sub["subgroup"])
+                    digits = "".join(ch for ch in raw if ch.isdigit())
+                    subgroup = f"{digits}-я подгруппа" if digits else raw
+
+            begin_time = str(time_obj.get("begin") or parts[1])
+            pair_num = PAIR_BY_BEGIN.get(begin_time)
             bucket.append(
                 {
                     "weekday": weekday,
-                    "begin": str(time_obj.get("begin") or parts[1]),
+                    "begin": begin_time,
                     "end": str(time_obj.get("end") or ""),
-                    "lesson": str(lesson_obj.get("name") or "—"),
+                    "lesson": lesson_name,
                     "type": lesson_type,
-                    "type_name": LESSON_TYPES.get(lesson_type),
+                    "type_name": type_name,
                     "classroom": str(classroom_obj["name"]) if classroom_obj.get("name") else None,
                     "teacher": str(teacher_obj["name"]) if teacher_obj.get("name") else None,
                     "classes": classes,
+                    "subgroup": subgroup,
+                    "pair": pair_num,
+                    "pair_name": PAIR_NAMES.get(pair_num),
                     "date": lesson.get("date"),
                 }
             )

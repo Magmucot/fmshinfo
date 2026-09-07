@@ -15,7 +15,7 @@
  *  — в конце — итоги за день без подписи (просто строки КБЖУ).
  */
 
-import { execFile } from "child_process";
+import { spawn, execFile } from "child_process";
 import { promisify } from "util";
 import { CATERING_URL, SESC_BASE, fetchWithTimeout } from "./sources";
 import { cached, TTL } from "./cache";
@@ -116,31 +116,49 @@ export async function fetchCatalog(): Promise<Record<string, string>> {
   return data;
 }
 
-/** Извлечь текст из PDF через системный pdftotext (stdin → stdout, fallback: temp-файл) */
+/** Извлечь текст из PDF через системный pdftotext (stdin → stdout с сохранением колонок) */
 export async function extractPdfText(pdfBytes: Uint8Array): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("pdftotext", ["-layout", "-", "-"], {
-      maxBuffer: 8 * 1024 * 1024,
-      timeout: 25000,
-    }).catch(async () => {
-      const { writeFile, unlink } = await import("fs/promises");
-      const os = await import("os");
-      const path = await import("path");
-      const tmp = path.join(os.tmpdir(), `sunc-menu-${Date.now()}.pdf`);
-      await writeFile(tmp, pdfBytes);
-      try {
-        return await execFileAsync("pdftotext", ["-layout", tmp, "-"], {
-          maxBuffer: 8 * 1024 * 1024,
-          timeout: 25000,
-        });
-      } finally {
-        void unlink(tmp).catch(() => {});
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn("pdftotext", ["-layout", "-", "-"]);
+    } catch (err) {
+      return reject(err);
+    }
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf-8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf-8");
+    });
+
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "ENOENT") {
+        reject(
+          new Error(
+            "Системная утилита pdftotext не найдена в $PATH. Установите пакет poppler-utils (nix profile install nixpkgs#poppler-utils)."
+          )
+        );
+      } else {
+        reject(new Error(`Ошибка запуска pdftotext: ${err.message}`));
       }
     });
-    return stdout;
-  } catch (error) {
-    throw new Error(`Не удалось извлечь текст из PDF: ${(error as Error).message}`);
-  }
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`pdftotext завершился с кодом ${code}: ${stderr.trim()}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+
+    child.stdin.write(pdfBytes);
+    child.stdin.end();
+  });
 }
 
 type Kbju = Pick<Dish, "kcal" | "protein" | "fat" | "carbs">;

@@ -68,9 +68,14 @@ export interface ScheduleLesson {
   lesson: string;
   type: number | null;
   typeName: string | null;
+  category?: "lecture" | "seminar" | "lab" | "speckurs" | "elective" | "lesson";
   classroom: string | null;
   teacher: string | null;
   classes: string[];
+  subgroup?: string | null;
+  rawSubgroup?: string | null;
+  pair?: number | null;
+  pairName?: string | null;
   date: string | null;
 }
 

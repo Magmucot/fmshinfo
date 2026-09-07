@@ -127,6 +127,15 @@ export function useEvents() {
   });
 }
 
+export function useCanteenSchedule(className?: string) {
+  return useQuery<any>({
+    queryKey: ["canteenSchedule", className ?? "all"],
+    queryFn: () => api<any>(`/api/canteen/schedule${className ? `?class=${encodeURIComponent(className)}` : ""}`),
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 60 * 1000, // каждую минуту обновляем статус
+  });
+}
+
 /** Административные запросы (X-Admin-Key) */
 export async function adminRequest(
   path: string,
@@ -158,3 +167,67 @@ export async function sendFeedback(name: string, contact: string, message: strin
     throw new Error(data.error || "Не удалось отправить сообщение");
   }
 }
+
+export interface UsersStatsData {
+  ok: boolean;
+  isAdmin: boolean;
+  bot: {
+    totalUsers: number;
+    activeToday: number;
+    activeWeek: number;
+    withClassCount: number;
+    byClass: Record<string, number>;
+    topClasses: Array<{ className: string; count: number }>;
+    byGrade: Record<string, number>;
+    recentUsers?: Array<{
+      id: string;
+      username: string | null;
+      firstName: string | null;
+      className: string | null;
+      actionsCount: number;
+      lastAction: string | null;
+      lastActiveAt: string;
+    }>;
+  };
+  web: {
+    totalVisitors: number;
+  };
+}
+
+/** Статистика аудитории и пользователей Telegram-бота и сайта */
+export function useUsersStats(adminKey?: string) {
+  return useQuery<UsersStatsData>({
+    queryKey: ["usersStats", adminKey ?? ""],
+    queryFn: () =>
+      api<UsersStatsData>(
+        `/api/users/stats${adminKey ? `?adminKey=${encodeURIComponent(adminKey)}` : ""}`
+      ),
+    staleTime: 30 * 1000,
+  });
+}
+
+export interface AdminLogsData {
+  ok: boolean;
+  file: string;
+  totalLines: number;
+  count: number;
+  lines: string[];
+}
+
+/** Получение строк логов для админ-панели */
+export function useAdminLogs(adminKey?: string, file = "bot", level = "ALL") {
+  return useQuery<AdminLogsData>({
+    queryKey: ["adminLogs", adminKey ?? "", file, level],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (adminKey) p.set("adminKey", adminKey);
+      p.set("file", file);
+      if (level && level !== "ALL") p.set("level", level);
+      return api<AdminLogsData>(`/api/admin/logs?${p.toString()}`);
+    },
+    enabled: Boolean(adminKey),
+    refetchInterval: 6000, // автообновление каждые 6 сек при открытой консоли
+  });
+}
+
+

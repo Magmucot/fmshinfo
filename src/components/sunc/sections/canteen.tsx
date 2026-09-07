@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  BarChart3, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Utensils, Flame, Info,
+  BarChart3, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, FileText, Utensils, Flame, Info,
   Search, Share2, X, Leaf, Milk, Wheat, Egg, Fish, Nut, Dumbbell,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
@@ -20,16 +20,18 @@ import { useMenu } from "../api";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, StaleBadge, humanDate } from "../shared";
 import type { CanteenView } from "../app";
 import { AnalyticsSection } from "./analytics";
+import { CanteenScheduleView } from "./canteen-schedule";
 import type { Dish, MealSection } from "../types";
 import {
   ALLERGENS, DISH_FILTERS, analyzeDish, dishMatchesQuery, menuToShareText, splitHighlight,
 } from "../nutrition";
 import type { DishFilterId } from "../nutrition";
 
-/** Сегментированный переключатель «Меню / Аналитика» вверху раздела «Столовая» */
+/** Сегментированный переключатель «Меню / График смен / Аналитика» вверху раздела «Столовая» */
 function CanteenViewSwitch({ view, onChange }: { view: CanteenView; onChange: (v: CanteenView) => void }) {
   const items: Array<{ id: CanteenView; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: "menu", label: "Меню", icon: Utensils },
+    { id: "schedule", label: "График смен", icon: Clock },
     { id: "analytics", label: "Аналитика", icon: BarChart3 },
   ];
   return (
@@ -290,7 +292,9 @@ export function CanteenSection({ view = "menu", onViewChange }: { view?: Canteen
       {/* Переключатель Меню / Аналитика */}
       <CanteenViewSwitch view={view} onChange={setView} />
 
-      {view === "analytics" ? (
+      {view === "schedule" ? (
+        <CanteenScheduleView />
+      ) : view === "analytics" ? (
         <AnalyticsSection />
       ) : (
       <>

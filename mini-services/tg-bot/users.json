@@ -1,0 +1,28 @@
+{
+  "1573047506": {
+    "id": 1573047506,
+    "username": "Maagicus",
+    "firstName": "Magicus",
+    "lastName": null,
+    "className": "10-4",
+    "languageCode": "ru",
+    "isPremium": false,
+    "actionsCount": 8,
+    "lastAction": "text:🍽 Меню",
+    "firstSeenAt": "2026-09-05T03:21:45.928Z",
+    "lastActiveAt": "2026-09-05T09:49:59.325Z"
+  },
+  "6057442319": {
+    "id": 6057442319,
+    "username": "Fialiger",
+    "firstName": "Fialiger",
+    "lastName": null,
+    "className": "8-1",
+    "languageCode": "ru",
+    "isPremium": false,
+    "actionsCount": 151,
+    "lastAction": "text:📌 События",
+    "firstSeenAt": "2026-09-05T03:21:45.928Z",
+    "lastActiveAt": "2026-09-05T11:43:30.052Z"
+  }
+}

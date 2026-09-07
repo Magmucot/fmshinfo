@@ -36,10 +36,21 @@ export interface ScheduleLesson {
   lesson: string;
   type: number | null;
   typeName: string | null;
+  category?: "lecture" | "seminar" | "lab" | "speckurs" | "elective" | "lesson";
   classroom: string | null;
   teacher: string | null;
   classes: string[];
+  subgroup?: string | null;
+  rawSubgroup?: string | null;
+  pair?: number | null;
+  pairName?: string | null;
   date: string | null;
+}
+
+export function formatSubgroup(subgroup: string | null | undefined): string | null {
+  if (!subgroup) return null;
+  const num = subgroup.replace(/\D/g, "");
+  return num ? `${num}-я подгруппа` : subgroup;
 }
 
 export interface ScheduleData {
@@ -50,7 +61,7 @@ export interface ScheduleData {
   totalLessons: number;
 }
 
-const PAIR_BY_BEGIN: Record<string, number> = {
+export const PAIR_BY_BEGIN: Record<string, number> = {
   "08:30": 1, "09:25": 1,
   "10:20": 2, "11:15": 2,
   "12:30": 3, "13:25": 3,
@@ -60,21 +71,51 @@ const PAIR_BY_BEGIN: Record<string, number> = {
   "20:30": 6, "21:20": 6,
 };
 
-const PAIR_NAMES: Record<number, string> = {
-  0: "Факультативы",
-  1: "Первая пара",
-  2: "Вторая пара",
-  3: "Третья пара",
-  4: "Четвёртая пара",
-  5: "Пятая пара",
-  6: "Шестая пара",
+export const PAIR_NAMES: Record<number, string> = {
+  0: "Факультатив",
+  1: "1-я пара",
+  2: "2-я пара",
+  3: "3-я пара",
+  4: "Спецкурс / Доп. занятие",
+  5: "Вечерний спецкурс",
+  6: "Самоподготовка",
 };
 
-const LESSON_TYPE_NAMES: Record<number, string> = {
-  1: "Урок",
-  2: "Спецкурс",
-  3: "Факультатив",
+export const LESSON_TYPE_NAMES: Record<number, string> = {
+  1: "Лекция",
+  2: "Семинар",
+  3: "Лабораторная",
 };
+
+export function classifyLesson(
+  name: string,
+  type: number | null
+): {
+  type: number | null;
+  typeName: string;
+  category: "lecture" | "seminar" | "lab" | "speckurs" | "elective" | "lesson";
+} {
+  const norm = (name ?? "").toLowerCase().trim();
+  if (norm.includes("спецкурс") || norm.startsWith("ск ") || norm.includes("спец.")) {
+    return { type, typeName: "Спецкурс", category: "speckurs" };
+  }
+  if (norm.includes("факультатив")) {
+    return { type, typeName: "Факультатив", category: "elective" };
+  }
+  if (norm.includes("лабораторн")) {
+    return { type: type ?? 3, typeName: "Лабораторная", category: "lab" };
+  }
+  if (type === 1) {
+    return { type, typeName: "Лекция", category: "lecture" };
+  }
+  if (type === 2) {
+    return { type, typeName: "Семинар", category: "seminar" };
+  }
+  if (type === 3) {
+    return { type, typeName: "Лабораторная", category: "lab" };
+  }
+  return { type, typeName: "Занятие", category: "lesson" };
+}
 
 async function getJson(url: string, params?: Record<string, string>): Promise<unknown> {
   const search = params ? "?" + new URLSearchParams(params).toString() : "";
@@ -172,7 +213,7 @@ export async function getSchedule(filter: {
           lesson?: { name?: string; type?: number };
           classroom?: { name?: string } | null;
           teacher?: { name?: string } | null;
-          schoolClasses?: Array<{ name?: string }>;
+          schoolClasses?: Array<{ name?: string; subgroup?: string | null }>;
           date?: string | null;
         }>
       >;
@@ -188,16 +229,37 @@ export async function getSchedule(filter: {
     const weekday = Number(weekdayStr);
     if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) continue;
     for (const lesson of lessons) {
+      const classified = classifyLesson(lesson.lesson?.name ?? "", lesson.lesson?.type ?? null);
+      
+      let rawSubgroup: string | null = null;
+      if (filter.group) {
+        const match = (lesson.schoolClasses ?? []).find(
+          (c) => c.name?.toLowerCase() === filter.group?.toLowerCase()
+        );
+        rawSubgroup = match?.subgroup ?? null;
+      } else {
+        rawSubgroup = (lesson.schoolClasses ?? []).find((c) => c.subgroup)?.subgroup ?? null;
+      }
+
+      const begin = lesson.time?.begin ?? "";
+      const pair = PAIR_BY_BEGIN[begin] ?? null;
+      const pairName = pair !== null ? PAIR_NAMES[pair] ?? null : null;
+
       days[String(weekday)]?.push({
         weekday,
-        begin: lesson.time?.begin ?? "",
+        begin,
         end: lesson.time?.end ?? "",
         lesson: lesson.lesson?.name ?? "—",
-        type: lesson.lesson?.type ?? null,
-        typeName: lesson.lesson?.type ? LESSON_TYPESafe(lesson.lesson.type) : null,
+        type: classified.type,
+        typeName: classified.typeName,
+        category: classified.category,
         classroom: lesson.classroom?.name ?? null,
         teacher: lesson.teacher?.name ?? null,
         classes: (lesson.schoolClasses ?? []).map((c) => c.name ?? "").filter(Boolean),
+        subgroup: formatSubgroup(rawSubgroup),
+        rawSubgroup,
+        pair,
+        pairName,
         date: lesson.date ?? null,
       });
     }
