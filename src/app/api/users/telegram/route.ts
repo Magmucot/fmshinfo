@@ -11,6 +11,8 @@ interface TelegramUserPayload {
   firstName?: string | null;
   lastName?: string | null;
   className?: string | null;
+  subgroup?: number | null;
+  englishGroup?: string | null;
   languageCode?: string | null;
   isPremium?: boolean;
   action?: string | null;
@@ -36,6 +38,12 @@ export async function POST(request: NextRequest) {
     const languageCode = body.languageCode ? body.languageCode.trim() : null;
     const isPremium = Boolean(body.isPremium);
     const action = body.action ? body.action.trim() : null;
+    const subgroup = body.subgroup !== undefined
+      ? (typeof body.subgroup === "number" ? body.subgroup : (body.subgroup ? Number(body.subgroup) : null))
+      : undefined;
+    const englishGroup = body.englishGroup !== undefined
+      ? (body.englishGroup ? String(body.englishGroup).trim() : null)
+      : undefined;
 
     const existing = await db.telegramUser.findUnique({
       where: { id },
@@ -51,6 +59,8 @@ export async function POST(request: NextRequest) {
           firstName: firstName ?? existing.firstName,
           lastName: lastName ?? existing.lastName,
           className: className ?? existing.className,
+          subgroup: subgroup !== undefined ? subgroup : existing.subgroup,
+          englishGroup: englishGroup !== undefined ? englishGroup : existing.englishGroup,
           languageCode: languageCode ?? existing.languageCode,
           isPremium: isPremium ?? existing.isPremium,
           actionsCount: { increment: 1 },
@@ -58,7 +68,10 @@ export async function POST(request: NextRequest) {
           lastActiveAt: now,
         },
       });
-      portalLogger.audit("TG_USER_UPDATE", `User ${id} (@${username ?? "no_user"}) action="${action ?? "—"}" class="${className ?? existing.className ?? "—"}" totalActions=${updated.actionsCount}`);
+      portalLogger.audit(
+        "TG_USER_UPDATE",
+        `User ${id} (@${username ?? "no_user"}) action="${action ?? "—"}" class="${className ?? existing.className ?? "—"}" sub="${updated.subgroup ?? "none"}" eng="${updated.englishGroup ?? "none"}" totalActions=${updated.actionsCount}`
+      );
       return NextResponse.json({ ok: true, user: updated, isNew: false });
     } else {
       const created = await db.telegramUser.create({
@@ -68,6 +81,8 @@ export async function POST(request: NextRequest) {
           firstName,
           lastName,
           className,
+          subgroup: subgroup ?? null,
+          englishGroup: englishGroup ?? null,
           languageCode,
           isPremium,
           actionsCount: 1,
@@ -76,7 +91,10 @@ export async function POST(request: NextRequest) {
           lastActiveAt: now,
         },
       });
-      portalLogger.audit("TG_USER_CREATE", `New student registered: ${id} (@${username ?? "no_user"}) name="${firstName ?? ""} ${lastName ?? ""}" class="${className ?? "—"}"`);
+      portalLogger.audit(
+        "TG_USER_CREATE",
+        `New student registered: ${id} (@${username ?? "no_user"}) name="${firstName ?? ""} ${lastName ?? ""}" class="${className ?? "—"}" sub="${created.subgroup ?? "none"}" eng="${created.englishGroup ?? "none"}"`
+      );
       return NextResponse.json({ ok: true, user: created, isNew: true });
     }
   } catch (error) {
@@ -89,7 +107,7 @@ export async function POST(request: NextRequest) {
  * GET /api/users/telegram
  * Возвращает пользователей бота.
  * При наличии X-Admin-Key или ?adminKey=sunc-admin выдаётся полный детализированный список.
- * Без ключа — возвращается обезличенная сводка (общее количество, распределение по классам).
+ * Без ключа — возвращается обезличенная сводка (общее количество, распределение по классам и подгруппам).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -98,6 +116,7 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const classFilter = searchParams.get("class");
+    const subgroupFilter = searchParams.get("subgroup");
     const searchQuery = searchParams.get("search");
 
     // Если не админ — отдаём только публичную агрегацию без персональных данных
@@ -106,14 +125,19 @@ export async function GET(request: NextRequest) {
       const withClass = await db.telegramUser.count({ where: { className: { not: null } } });
       const allWithClass = await db.telegramUser.findMany({
         where: { className: { not: null } },
-        select: { className: true },
+        select: { className: true, subgroup: true },
       });
 
       const byClass: Record<string, number> = {};
+      const bySubgroup: Record<string, number> = { "1": 0, "2": 0, "none": 0 };
+
       for (const u of allWithClass) {
         if (u.className) {
           byClass[u.className] = (byClass[u.className] ?? 0) + 1;
         }
+        if (u.subgroup === 1) bySubgroup["1"] = (bySubgroup["1"] ?? 0) + 1;
+        else if (u.subgroup === 2) bySubgroup["2"] = (bySubgroup["2"] ?? 0) + 1;
+        else bySubgroup["none"] = (bySubgroup["none"] ?? 0) + 1;
       }
 
       return NextResponse.json({
@@ -122,22 +146,32 @@ export async function GET(request: NextRequest) {
         totalUsers,
         withClassCount: withClass,
         byClass,
+        bySubgroup,
       });
     }
 
     // Для администратора — полный список с фильтрами
     const where: {
       className?: string;
+      subgroup?: number;
       OR?: Array<{
         username?: { contains: string };
         firstName?: { contains: string };
         lastName?: { contains: string };
         id?: { contains: string };
+        englishGroup?: { contains: string };
       }>;
     } = {};
 
     if (classFilter) {
       where.className = classFilter;
+    }
+
+    if (subgroupFilter !== null && subgroupFilter !== "") {
+      const numSub = Number(subgroupFilter);
+      if (!isNaN(numSub)) {
+        where.subgroup = numSub;
+      }
     }
 
     if (searchQuery) {
@@ -147,6 +181,7 @@ export async function GET(request: NextRequest) {
         { firstName: { contains: q } },
         { lastName: { contains: q } },
         { id: { contains: q } },
+        { englishGroup: { contains: q } },
       ];
     }
 
@@ -155,7 +190,10 @@ export async function GET(request: NextRequest) {
       orderBy: { lastActiveAt: "desc" },
     });
 
-    portalLogger.info("ADMIN_API", `GET /api/users/telegram: returned ${users.length} users (classFilter=${classFilter ?? "all"}, search=${searchQuery ?? "none"})`);
+    portalLogger.info(
+      "ADMIN_API",
+      `GET /api/users/telegram: returned ${users.length} users (classFilter=${classFilter ?? "all"}, subFilter=${subgroupFilter ?? "all"}, search=${searchQuery ?? "none"})`
+    );
 
     const totalUsers = await db.telegramUser.count();
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -164,13 +202,18 @@ export async function GET(request: NextRequest) {
     });
 
     const all = await db.telegramUser.findMany({
-      select: { className: true },
+      select: { className: true, subgroup: true },
     });
     const byClass: Record<string, number> = {};
+    const bySubgroup: Record<string, number> = { "1": 0, "2": 0, "none": 0 };
+
     for (const u of all) {
       if (u.className) {
         byClass[u.className] = (byClass[u.className] ?? 0) + 1;
       }
+      if (u.subgroup === 1) bySubgroup["1"] = (bySubgroup["1"] ?? 0) + 1;
+      else if (u.subgroup === 2) bySubgroup["2"] = (bySubgroup["2"] ?? 0) + 1;
+      else bySubgroup["none"] = (bySubgroup["none"] ?? 0) + 1;
     }
 
     return NextResponse.json({
@@ -179,6 +222,7 @@ export async function GET(request: NextRequest) {
       totalUsers,
       activeToday,
       byClass,
+      bySubgroup,
       count: users.length,
       users,
     });

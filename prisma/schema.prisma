@@ -42,13 +42,15 @@ model Feedback {
   createdAt DateTime @default(now())
 }
 
-// Пользователи Telegram-бота: учёт, сопоставление ID, username (@юзу), класса и активности
+// Пользователи Telegram-бота: учёт, сопоставление ID, username (@юзу), класса, подгруппы и активности
 model TelegramUser {
   id           String   @id // Telegram user ID в виде строки (защита от переполнения 64-bit int)
   username     String?  // @username («юзу»)
   firstName    String?  // Имя в Telegram
   lastName     String?  // Фамилия в Telegram
   className    String?  // Выбранный класс («10-4», «11-1» и др.)
+  subgroup     Int?     // Выбранная подгруппа по основным предметам (1 или 2)
+  englishGroup String?  // Выбранная группа по английскому языку («Бариленко И.А.», «Группа I» и др.)
   languageCode String?  // Код языка («ru»)
   isPremium    Boolean  @default(false) // Наличие Telegram Premium
   actionsCount Int      @default(1) // Количество взаимодействий с ботом
@@ -58,6 +60,7 @@ model TelegramUser {
   updatedAt    DateTime @updatedAt
 
   @@index([className])
+  @@index([subgroup])
   @@index([username])
   @@index([lastActiveAt])
 }
@@ -66,6 +69,7 @@ model TelegramUser {
 model WebVisitor {
   id           String   @id // Client UUID (localStorage / куки)
   className    String?  // Выбранный класс на портале
+  subgroup     Int?     // Выбранная подгруппа на портале (1 или 2)
   userAgent    String?  // Браузер и платформа
   visitsCount  Int      @default(1) // Количество сессий
   lastPath     String?  // Последний посещённый раздел
@@ -74,5 +78,6 @@ model WebVisitor {
   updatedAt    DateTime @updatedAt
 
   @@index([className])
+  @@index([subgroup])
 }
 

@@ -199,7 +199,7 @@ function LessonMeta({ lesson }: { lesson: ScheduleLesson }) {
       {lesson.classroom ? (
         <span className="flex items-center gap-1 font-mono">
           <DoorOpen className="h-3 w-3 shrink-0 text-primary/70" />
-          {lesson.classroom}
+          {lesson.classroom.replace(/_/g, ".")}
         </span>
       ) : null}
       {lesson.classes && lesson.classes.length > 1 ? (

@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 interface WebVisitorPayload {
   clientId?: string;
   className?: string | null;
+  subgroup?: number | null;
   userAgent?: string | null;
   path?: string | null;
 }
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
     }
 
     const className = body.className ? body.className.trim() : null;
+    const subgroup = body.subgroup !== undefined
+      ? (typeof body.subgroup === "number" ? body.subgroup : (body.subgroup ? Number(body.subgroup) : null))
+      : undefined;
     const userAgent = body.userAgent ? body.userAgent.slice(0, 500) : request.headers.get("user-agent")?.slice(0, 500) ?? null;
     const path = body.path ? body.path.slice(0, 200) : null;
 
@@ -39,19 +43,21 @@ export async function POST(request: NextRequest) {
         where: { id: clientId },
         data: {
           className: className ?? existing.className,
+          subgroup: subgroup !== undefined ? subgroup : existing.subgroup,
           userAgent: userAgent ?? existing.userAgent,
           lastPath: path ?? existing.lastPath,
           visitsCount: { increment: 1 },
           lastActiveAt: now,
         },
       });
-      portalLogger.info("WEB_VISITOR", `Visitor ${clientId} active on ${path ?? "/"} | class=${className ?? existing.className ?? "none"} (visits: ${updated.visitsCount})`);
+      portalLogger.info("WEB_VISITOR", `Visitor ${clientId} active on ${path ?? "/"} | class=${className ?? existing.className ?? "none"} sub=${updated.subgroup ?? "none"} (visits: ${updated.visitsCount})`);
       return NextResponse.json({ ok: true, visitor: updated, isNew: false });
     } else {
       const created = await db.webVisitor.create({
         data: {
           id: clientId,
           className,
+          subgroup: subgroup ?? null,
           userAgent,
           lastPath: path,
           visitsCount: 1,
@@ -59,7 +65,7 @@ export async function POST(request: NextRequest) {
           lastActiveAt: now,
         },
       });
-      portalLogger.info("WEB_VISITOR", `New web visitor ${clientId} on ${path ?? "/"} | class=${className ?? "none"}`);
+      portalLogger.info("WEB_VISITOR", `New web visitor ${clientId} on ${path ?? "/"} | class=${className ?? "none"} sub=${created.subgroup ?? "none"}`);
       return NextResponse.json({ ok: true, visitor: created, isNew: true });
     }
   } catch (error) {

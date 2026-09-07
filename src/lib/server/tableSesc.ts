@@ -201,7 +201,7 @@ export async function getSchedule(filter: {
   const params = {
     group: filter.group ?? "",
     teacher: filter.teacher ?? "",
-    classroom: filter.classroom ?? "",
+    classroom: filter.classroom ? filter.classroom.replace(/\./g, "_") : "",
   };
   const data = (await getJson(`${TABLE_SESC_BASE}/api/schedule/find`, params)) as {
     payload?: {
@@ -253,7 +253,7 @@ export async function getSchedule(filter: {
         type: classified.type,
         typeName: classified.typeName,
         category: classified.category,
-        classroom: lesson.classroom?.name ?? null,
+        classroom: lesson.classroom?.name ? lesson.classroom.name.replace(/_/g, ".") : null,
         teacher: lesson.teacher?.name ?? null,
         classes: (lesson.schoolClasses ?? []).map((c) => c.name ?? "").filter(Boolean),
         subgroup: formatSubgroup(rawSubgroup),
@@ -273,7 +273,7 @@ export async function getSchedule(filter: {
   return {
     group: filter.group ?? null,
     teacher: filter.teacher ?? null,
-    classroom: filter.classroom ?? null,
+    classroom: filter.classroom ? filter.classroom.replace(/_/g, ".") : null,
     days,
     totalLessons: total,
   };

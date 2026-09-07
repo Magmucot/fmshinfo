@@ -5,24 +5,28 @@
     "firstName": "Magicus",
     "lastName": null,
     "className": "10-4",
+    "subgroup": 1,
+    "englishGroup": "Орловская А.Л.",
     "languageCode": "ru",
     "isPremium": false,
-    "actionsCount": 8,
-    "lastAction": "text:🍽 Меню",
+    "actionsCount": 30,
+    "lastAction": "cb:subgroup:main:1:10-4",
     "firstSeenAt": "2026-09-05T03:21:45.928Z",
-    "lastActiveAt": "2026-09-05T09:49:59.325Z"
+    "lastActiveAt": "2026-09-07T06:39:49.583Z"
   },
   "6057442319": {
     "id": 6057442319,
     "username": "Fialiger",
     "firstName": "Fialiger",
     "lastName": null,
-    "className": "8-1",
+    "className": "10-4",
     "languageCode": "ru",
     "isPremium": false,
-    "actionsCount": 151,
-    "lastAction": "text:📌 События",
+    "actionsCount": 175,
+    "lastAction": "text:📅 Расписание",
     "firstSeenAt": "2026-09-05T03:21:45.928Z",
-    "lastActiveAt": "2026-09-05T11:43:30.052Z"
+    "lastActiveAt": "2026-09-07T06:26:17.508Z",
+    "subgroup": null,
+    "englishGroup": null
   }
 }

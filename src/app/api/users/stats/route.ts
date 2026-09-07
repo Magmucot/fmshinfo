@@ -46,12 +46,25 @@ export async function GET(request: NextRequest) {
       .map(([className, count]) => ({ className, count }))
       .sort((a, b) => b.count - a.count);
 
-    // Последние активные пользователи (для админа — с именами и юзернеймами)
+    // Распределение по подгруппам
+    const allUsersSubs = await db.telegramUser.findMany({
+      select: { subgroup: true },
+    });
+    const bySubgroup: Record<string, number> = { "1": 0, "2": 0, "none": 0 };
+    for (const u of allUsersSubs) {
+      if (u.subgroup === 1) bySubgroup["1"] = (bySubgroup["1"] ?? 0) + 1;
+      else if (u.subgroup === 2) bySubgroup["2"] = (bySubgroup["2"] ?? 0) + 1;
+      else bySubgroup["none"] = (bySubgroup["none"] ?? 0) + 1;
+    }
+
+    // Последние активные пользователи (для админа — с именами, юзернеймами, классами и подгруппами)
     let recentUsers: Array<{
       id: string;
       username: string | null;
       firstName: string | null;
       className: string | null;
+      subgroup: number | null;
+      englishGroup: string | null;
       actionsCount: number;
       lastAction: string | null;
       lastActiveAt: Date;
@@ -59,13 +72,15 @@ export async function GET(request: NextRequest) {
 
     if (isAdmin) {
       recentUsers = await db.telegramUser.findMany({
-        take: 20,
+        take: 50,
         orderBy: { lastActiveAt: "desc" },
         select: {
           id: true,
           username: true,
           firstName: true,
           className: true,
+          subgroup: true,
+          englishGroup: true,
           actionsCount: true,
           lastAction: true,
           lastActiveAt: true,
@@ -84,6 +99,7 @@ export async function GET(request: NextRequest) {
         byClass: botByClass,
         topClasses: sortedClasses,
         byGrade,
+        bySubgroup,
         recentUsers,
       },
       web: {
