@@ -347,8 +347,8 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
   // Логирование действия в audit.log и bot.log
   botLogger.command(id, username, action, cls);
 
-  // Синхронизация с Next.js не чаще 1 раза в 30 секунд на пользователя,
-  // либо немедленно при явной смене класса
+  // Синхронизация с Next.js и DB не чаще 1 раза в 30 секунд на пользователя,
+  // либо немедленно при явной смене класса или подгруппы
   const nowTime = Date.now();
   const lastSync = lastApiSyncMap.get(id) ?? 0;
   if (newClass || nowTime - lastSync > 30_000) {
@@ -362,6 +362,8 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
         firstName,
         lastName,
         className: cls,
+        subgroup: updatedRecord.subgroup,
+        englishGroup: updatedRecord.englishGroup,
         languageCode,
         isPremium,
         action,
@@ -369,6 +371,52 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
     }).catch((err) => {
       botLogger.debug("API_SYNC", `Sync failed for user ${id}: ${(err as Error).message}`);
     });
+  }
+}
+
+/** Прямая немедленная синхронизация пользователя с базой данных (Prisma SQLite) через API */
+export async function syncUserToDb(userId: number, actionName?: string) {
+  const profile = userProfiles.get(userId);
+  const cls = profile?.className ?? userClassMap.get(userId) ?? null;
+  const sub = userSubgroupMap.get(userId) ?? profile?.subgroup ?? null;
+  const eng = userEnglishMap.get(userId) ?? profile?.englishGroup ?? null;
+
+  try {
+    lastApiSyncMap.set(userId, Date.now());
+    const res = await fetch(`${API}/api/users/telegram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: String(userId),
+        username: profile?.username ?? null,
+        firstName: profile?.firstName ?? null,
+        lastName: profile?.lastName ?? null,
+        className: cls,
+        subgroup: sub,
+        englishGroup: eng,
+        languageCode: profile?.languageCode ?? "ru",
+        isPremium: profile?.isPremium ?? false,
+        action: actionName ?? profile?.lastAction ?? "sync",
+      }),
+    });
+    if (res.ok) {
+      botLogger.debug("DB_SYNC", `User ${userId} synced to DB: class=${cls} sub=${sub} eng=${eng}`);
+    }
+  } catch (err: any) {
+    botLogger.debug("DB_SYNC", `Sync to DB failed for user ${userId}: ${err?.message}`);
+  }
+}
+
+/** Первичная фоновая синхронизация всех пользователей бота с БД при старте */
+export async function backfillUsersToDb() {
+  try {
+    botLogger.info("DB_BACKFILL", `Синхронизация профилей с базой данных (${userProfiles.size} пользователей)...`);
+    for (const id of userProfiles.keys()) {
+      await syncUserToDb(id, "startup_backfill");
+    }
+    botLogger.info("DB_BACKFILL", "Синхронизация профилей с БД успешно завершена");
+  } catch (e: any) {
+    botLogger.error("DB_BACKFILL", "Ошибка backfill в базу данных", e);
   }
 }
 
@@ -2128,6 +2176,7 @@ function main() {
       await ctx.answerCallbackQuery(`Выбрана ${choice}-я подгруппа! ✅`).catch(() => {});
     }
     saveUsersToDisk();
+    syncUserToDb(userId, `subgroup:main:${choice}`);
 
     const res = await getSubgroupMenu(userId, className);
     try {
@@ -2167,6 +2216,7 @@ function main() {
     if (selected) {
       userEnglishMap.set(userId, selected.id);
       saveUsersToDisk();
+      syncUserToDb(userId, `subgroup:eng:${selected.id}`);
       await ctx.answerCallbackQuery(`Английский: ${selected.label} сохранён! ✅`).catch(() => {});
     }
     const res = await getEnglishMenu(userId, className);
@@ -2187,6 +2237,7 @@ function main() {
 
     userEnglishMap.delete(userId);
     saveUsersToDisk();
+    syncUserToDb(userId, "subgroup:eng:all");
     await ctx.answerCallbackQuery("Английский: показываются все группы ✅").catch(() => {});
 
     const res = await getEnglishMenu(userId, className);
@@ -2306,6 +2357,8 @@ function main() {
         bot.start();
         botLogger.info("STARTUP", `Telegram бот запущен (long polling), API: ${API}, профилей в памяти: ${userProfiles.size}`);
         console.log(`[tg-bot] Бот запущен (long polling), API портала: ${API}`);
+        // Фоновая синхронизация профилей с базой данных при старте
+        backfillUsersToDb().catch(() => {});
       })
       .catch((err) => {
         botLogger.error("STARTUP", `Не удалось запустить бота: ${err?.message ?? err}`);

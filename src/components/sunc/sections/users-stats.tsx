@@ -25,6 +25,7 @@ export function UsersStatsSection() {
   const [submittedKey, setSubmittedKey] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [selectedGrade, setSelectedGrade] = useState<string>("all");
+  const [selectedSubgroup, setSelectedSubgroup] = useState<string>("all");
   const [selectedClass, setSelectedClass] = useState<string>("all");
   const [adminSubTab, setAdminSubTab] = useState<"users" | "logs">("users");
 
@@ -53,7 +54,8 @@ export function UsersStatsSection() {
         const fname = (u.firstName ?? "").toLowerCase();
         const idStr = String(u.id);
         const cls = (u.className ?? "").toLowerCase();
-        return uname.includes(q) || fname.includes(q) || idStr.includes(q) || cls.includes(q);
+        const eng = (u.englishGroup ?? "").toLowerCase();
+        return uname.includes(q) || fname.includes(q) || idStr.includes(q) || cls.includes(q) || eng.includes(q);
       });
     }
 
@@ -61,12 +63,20 @@ export function UsersStatsSection() {
       list = list.filter((u) => u.className?.startsWith(`${selectedGrade}-`));
     }
 
+    if (selectedSubgroup === "1") {
+      list = list.filter((u) => u.subgroup === 1);
+    } else if (selectedSubgroup === "2") {
+      list = list.filter((u) => u.subgroup === 2);
+    } else if (selectedSubgroup === "none") {
+      list = list.filter((u) => !u.subgroup);
+    }
+
     if (selectedClass !== "all") {
       list = list.filter((u) => u.className === selectedClass);
     }
 
     return list;
-  }, [recentUsers, search, selectedGrade, selectedClass]);
+  }, [recentUsers, search, selectedGrade, selectedSubgroup, selectedClass]);
 
   const handleAdminKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,7 +160,11 @@ export function UsersStatsSection() {
             {withClassCount}
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground">
-            {totalUsers > 0 ? `${Math.round((withClassCount / totalUsers) * 100)}% от всех пользователей` : "—"}
+            {bot.bySubgroup && (bot.bySubgroup["1"] > 0 || bot.bySubgroup["2"] > 0)
+              ? `1-я подгр: ${bot.bySubgroup["1"]} · 2-я: ${bot.bySubgroup["2"]}`
+              : totalUsers > 0
+              ? `${Math.round((withClassCount / totalUsers) * 100)}% от пользователей`
+              : "—"}
           </div>
         </SectionCard>
 
@@ -303,36 +317,65 @@ export function UsersStatsSection() {
             ) : (
               <div className="space-y-4">
                 {/* Поиск и фильтры */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="relative flex-1 min-w-[200px]">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Поиск по @юзернейму, имени, классу или ID..."
+                      placeholder="Поиск по @юзернейму, имени, классу, подгруппе или ID..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                       className="pl-9 h-9 text-xs rounded-xl"
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant={selectedGrade === "all" ? "default" : "outline"}
-                      onClick={() => setSelectedGrade("all")}
-                      className="h-9 text-xs rounded-xl"
-                    >
-                      Все классы
-                    </Button>
-                    {["10", "11", "9", "8"].map((gr) => (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1">
                       <Button
-                        key={gr}
                         size="sm"
-                        variant={selectedGrade === gr ? "default" : "outline"}
-                        onClick={() => setSelectedGrade(gr)}
-                        className="h-9 text-xs rounded-xl"
+                        variant={selectedGrade === "all" ? "default" : "outline"}
+                        onClick={() => setSelectedGrade("all")}
+                        className="h-8 text-xs rounded-xl"
                       >
-                        {gr} кл.
+                        Все классы
                       </Button>
-                    ))}
+                      {["10", "11", "9", "8"].map((gr) => (
+                        <Button
+                          key={gr}
+                          size="sm"
+                          variant={selectedGrade === gr ? "default" : "outline"}
+                          onClick={() => setSelectedGrade(gr)}
+                          className="h-8 text-xs rounded-xl"
+                        >
+                          {gr} кл.
+                        </Button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-1 rounded-xl border bg-muted/30 p-1">
+                      <Button
+                        size="sm"
+                        variant={selectedSubgroup === "all" ? "secondary" : "ghost"}
+                        onClick={() => setSelectedSubgroup("all")}
+                        className="h-6 px-2 text-[11px] rounded-lg"
+                      >
+                        Все подгр.
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={selectedSubgroup === "1" ? "secondary" : "ghost"}
+                        onClick={() => setSelectedSubgroup("1")}
+                        className="h-6 px-2 text-[11px] rounded-lg"
+                      >
+                        1-я
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={selectedSubgroup === "2" ? "secondary" : "ghost"}
+                        onClick={() => setSelectedSubgroup("2")}
+                        className="h-6 px-2 text-[11px] rounded-lg"
+                      >
+                        2-я
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
@@ -344,6 +387,7 @@ export function UsersStatsSection() {
                         <th className="px-3 py-2.5">Пользователь</th>
                         <th className="px-3 py-2.5">Telegram ID</th>
                         <th className="px-3 py-2.5">Класс</th>
+                        <th className="px-3 py-2.5">Подгруппа</th>
                         <th className="px-3 py-2.5 text-center">Запросов</th>
                         <th className="px-3 py-2.5">Последнее действие</th>
                         <th className="px-3 py-2.5 text-right">Последний визит</th>
@@ -401,6 +445,29 @@ export function UsersStatsSection() {
                                   <span className="text-muted-foreground italic">не выбран</span>
                                 )}
                               </td>
+                              <td className="px-3 py-2.5">
+                                <div className="flex flex-col gap-0.5">
+                                  {u.subgroup ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className={`w-fit text-[10px] px-1.5 py-0 font-medium ${
+                                        u.subgroup === 1
+                                          ? "bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30"
+                                          : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                                      }`}
+                                    >
+                                      {u.subgroup}-я подгр.
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-muted-foreground text-[11px] italic">все</span>
+                                  )}
+                                  {u.englishGroup && (
+                                    <span className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]" title={u.englishGroup}>
+                                      🇬🇧 {u.englishGroup}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-3 py-2.5 text-center font-mono">
                                 {u.actionsCount}
                               </td>
@@ -417,7 +484,7 @@ export function UsersStatsSection() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                          <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                             Пользователи по заданным критериям не найдены
                           </td>
                         </tr>

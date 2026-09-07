@@ -19,14 +19,14 @@
     "username": "Fialiger",
     "firstName": "Fialiger",
     "lastName": null,
-    "className": "10-4",
+    "className": "10-8",
+    "subgroup": 1,
+    "englishGroup": "Сумарокова Т.В.",
     "languageCode": "ru",
     "isPremium": false,
-    "actionsCount": 175,
+    "actionsCount": 188,
     "lastAction": "text:📅 Расписание",
     "firstSeenAt": "2026-09-05T03:21:45.928Z",
-    "lastActiveAt": "2026-09-07T06:26:17.508Z",
-    "subgroup": null,
-    "englishGroup": null
+    "lastActiveAt": "2026-09-07T06:48:11.145Z"
   }
 }

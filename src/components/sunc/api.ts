@@ -179,11 +179,14 @@ export interface UsersStatsData {
     byClass: Record<string, number>;
     topClasses: Array<{ className: string; count: number }>;
     byGrade: Record<string, number>;
+    bySubgroup?: Record<string, number>;
     recentUsers?: Array<{
       id: string;
       username: string | null;
       firstName: string | null;
       className: string | null;
+      subgroup?: number | null;
+      englishGroup?: string | null;
       actionsCount: number;
       lastAction: string | null;
       lastActiveAt: string;
