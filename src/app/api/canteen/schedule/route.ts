@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const isWeekendParam = searchParams.get("weekend");
     const isWeekend = isWeekendParam !== null ? isWeekendParam === "true" || isWeekendParam === "1" : undefined;
 
-    const currentStatus = getCurrentMealState();
+    const currentStatus = getCurrentMealState(undefined, className ?? undefined);
 
     if (className) {
       const classSchedule = getMealsForClass(className, isWeekend ?? currentStatus.isWeekend);

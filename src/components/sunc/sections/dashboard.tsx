@@ -20,6 +20,7 @@ import {
 import {
   useBells, useCanteenSchedule, useDuty, useCounselors, useEvents, useMenu, useMenuStats, useNews, useWeather, useUsersStats,
 } from "../api";
+import { useUserClass } from "../useUserClass";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, humanDate } from "../shared";
 import { InstallBannerCard } from "../install-banner";
 import { Bell, Dish, MealSection } from "../types";
@@ -263,10 +264,11 @@ export function DashboardSection({
 }: {
   onNavigate: (tab: string, opts?: { canteenView?: "menu" | "schedule" | "analytics" }) => void;
 }) {
+  const [userClass] = useUserClass();
   const weather = useWeather();
   const bells = useBells();
   const menu = useMenu();
-  const canteenSchedule = useCanteenSchedule();
+  const canteenSchedule = useCanteenSchedule(userClass);
   const duty = useDuty(fmtRu(nowNsk()));
   const counselors = useCounselors(fmtRu(nowNsk()));
   const news = useNews(4);

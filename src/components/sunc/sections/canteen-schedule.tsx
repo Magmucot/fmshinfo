@@ -4,7 +4,7 @@
  * График работы столовой по сменам (источник: rasp.jpg)
  */
 
-import { useState } from "react";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,16 +13,40 @@ import {
   Calendar,
   AlertCircle,
   Users,
-  CheckCircle2,
-  Sparkles,
 } from "lucide-react";
 import { useCanteenSchedule, useClasses } from "../api";
 import { SectionCard, LoadingBlock, ErrorCard } from "../shared";
+import { useUserClass } from "../useUserClass";
 
 export function CanteenScheduleView() {
-  const [selectedClass, setSelectedClass] = useState<string>("10-1");
+  const [selectedClass, setSelectedClass] = useUserClass();
   const { data: scheduleData, isLoading, isError } = useCanteenSchedule(selectedClass);
   const { data: classesData } = useClasses();
+
+  const classesList = useMemo(() => {
+    if (classesData?.classes && classesData.classes.length > 0) {
+      return classesData.classes;
+    }
+    return [
+      "8-1",
+      "9-1", "9-2", "9-3",
+      "10-1", "10-2", "10-3", "10-4", "10-5", "10-6", "10-7", "10-8", "10-9",
+      "11-1", "11-2", "11-3", "11-4", "11-5", "11-6", "11-7", "11-8", "11-9", "11-10", "11-11", "11-12",
+    ];
+  }, [classesData?.classes]);
+
+  const parallels = useMemo(() => {
+    const groups: { [key: string]: string[] } = { "8": [], "9": [], "10": [], "11": [] };
+    classesList.forEach((c) => {
+      const p = c.split("-")[0];
+      if (groups[p]) groups[p].push(c);
+      else {
+        if (!groups[p]) groups[p] = [];
+        groups[p].push(c);
+      }
+    });
+    return groups;
+  }, [classesList]);
 
   if (isLoading) {
     return <LoadingBlock lines={4} />;
@@ -35,10 +59,11 @@ export function CanteenScheduleView() {
   const shifts = scheduleData.shifts;
   const currentStatus = scheduleData.currentStatus;
   const classSchedule = scheduleData.classSchedule;
+  const userShift = classSchedule?.shift;
 
   return (
     <div className="space-y-6">
-      {/* 1. Карточка живого статуса столовой */}
+      {/* 1. Карточка живого статуса столовой (с учётом выбранного класса) */}
       <SectionCard
         contentClassName="relative overflow-hidden"
         title="Сейчас в столовой"
@@ -62,7 +87,10 @@ export function CanteenScheduleView() {
             </div>
             {currentStatus.timeRange ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Время приёма: <code className="font-semibold">{currentStatus.timeRange}</code>
+                Время приёма для {selectedClass} ({userShift}-я смена):{" "}
+                <code className="rounded bg-primary/10 px-1.5 py-0.5 font-bold text-primary">
+                  {currentStatus.timeRange}
+                </code>
               </p>
             ) : null}
           </div>
@@ -78,36 +106,44 @@ export function CanteenScheduleView() {
       {/* 2. Выбор своего класса и персональный график */}
       <SectionCard
         title="Твоя смена и время приёмов пищи"
-        icon={<Utensils className="h-4 w-4" />}
+        icon={<Utensils className="h-4 w-4 text-primary" />}
       >
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="text-sm font-semibold">Твой класс:</label>
-          <div className="flex flex-wrap gap-1.5">
-            {(classesData?.classes ?? ["8-1", "9-1", "10-1", "11-1", "11-10"]).slice(0, 10).map((c) => (
-              <Button
-                key={c}
-                size="sm"
-                variant={selectedClass === c ? "default" : "outline"}
-                className="h-8 px-2.5 text-xs font-medium"
-                onClick={() => setSelectedClass(c)}
-              >
-                {c}
-              </Button>
+        <div className="mb-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-semibold flex items-center gap-1.5">
+              <Users className="h-4 w-4 text-primary" />
+              <span>Выбор твоего класса:</span>
+            </span>
+            <Badge variant="outline" className="border-primary/40 bg-primary/10 text-xs font-semibold text-primary">
+              Выбран: {selectedClass} ({userShift ? `${userShift}-я смена` : ""})
+            </Badge>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-border/60 bg-secondary/15 p-3">
+            {Object.entries(parallels).map(([p, clsList]) => (
+              <div key={p} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-16 shrink-0 text-xs font-bold text-muted-foreground">
+                  {p} классы:
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {clsList.map((c) => (
+                    <Button
+                      key={c}
+                      size="sm"
+                      variant={selectedClass === c ? "default" : "outline"}
+                      className={`h-7 px-2 text-xs font-medium transition-all ${
+                        selectedClass === c
+                          ? "shadow-xs font-bold ring-2 ring-primary/40"
+                          : "bg-card hover:bg-secondary/60"
+                      }`}
+                      onClick={() => setSelectedClass(c)}
+                    >
+                      {c}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             ))}
-            {(classesData?.classes?.length ?? 0) > 10 ? (
-              <select
-                aria-label="Выбрать другой класс для графика столовой"
-                value={selectedClass}
-                onChange={(e) => setSelectedClass(e.target.value)}
-                className="h-8 rounded-lg border border-border/80 bg-background px-2 text-xs font-medium text-foreground outline-none"
-              >
-                {classesData?.classes?.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            ) : null}
           </div>
         </div>
 
@@ -123,37 +159,60 @@ export function CanteenScheduleView() {
                   {shifts[classSchedule.shift]?.description}
                 </p>
               </div>
-              <Badge className="bg-primary text-primary-foreground">
+              <Badge className="bg-primary text-primary-foreground font-bold">
                 {classSchedule.shift}-я смена
               </Badge>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-              {classSchedule.meals.map((m: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="flex flex-col justify-between rounded-xl border border-border/70 bg-card p-3 shadow-xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-bold">{m.meal}</span>
-                    <Badge variant="outline" className="border-primary/40 bg-primary/10 text-xs font-semibold tabular-nums text-primary">
-                      {m.time}
-                    </Badge>
+              {classSchedule.meals.map((m: any, idx: number) => {
+                const isCurrent = currentStatus.status === "active" && currentStatus.currentMealName === m.meal;
+                const isNext = currentStatus.nextMealName === m.meal;
+
+                return (
+                  <div
+                    key={idx}
+                    className={`flex flex-col justify-between rounded-xl border p-3 transition-all ${
+                      isCurrent
+                        ? "border-emerald-500/60 bg-emerald-500/10 ring-2 ring-emerald-500/30 shadow-sm"
+                        : isNext
+                        ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+                        : "border-border/70 bg-card shadow-xs"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold">{m.meal}</span>
+                        {isCurrent && (
+                          <Badge className="bg-emerald-500 text-[10px] text-white px-1.5 py-0 h-4">
+                            Сейчас
+                          </Badge>
+                        )}
+                        {!isCurrent && isNext && (
+                          <Badge variant="outline" className="border-primary/40 text-[10px] text-primary px-1.5 py-0 h-4">
+                            Далее
+                          </Badge>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="border-primary/40 bg-primary/10 text-xs font-semibold tabular-nums text-primary">
+                        {m.time}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                      <p>Дежурные: <span className="font-medium text-foreground">{m.duty}</span></p>
+                      {m.late ? (
+                        <p>Опоздавшие: <span className="font-medium text-foreground">{m.late}</span></p>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-                    <p>Дежурные: <span className="font-medium text-foreground">{m.duty}</span></p>
-                    {m.late ? (
-                      <p>Опоздавшие: <span className="font-medium text-foreground">{m.late}</span></p>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ) : null}
       </SectionCard>
 
-      {/* 3. Сводная таблица графика смен (Пн - Сб) */}
+      {/* 3. Сводная таблица графика смен (Пн - Сб) с подсветкой смены пользователя */}
       <SectionCard
         title="График работы столовой со 2 сентября (Будние дни)"
         icon={<Calendar className="h-4 w-4" />}
@@ -164,9 +223,15 @@ export function CanteenScheduleView() {
               <tr className="border-b border-border/80 text-muted-foreground">
                 <th className="pb-2.5 font-semibold">Приём пищи</th>
                 <th className="pb-2.5 font-semibold text-amber-600 dark:text-amber-400">Дежурные</th>
-                <th className="pb-2.5 font-semibold">1-я смена</th>
-                <th className="pb-2.5 font-semibold">2-я смена</th>
-                <th className="pb-2.5 font-semibold">3-я смена</th>
+                <th className={`pb-2.5 font-semibold transition-colors ${userShift === 1 ? "text-primary font-bold bg-primary/10 px-2 rounded-t-lg" : ""}`}>
+                  1-я смена {userShift === 1 && <span className="ml-1 text-[10px] font-normal text-primary">★ Твоя</span>}
+                </th>
+                <th className={`pb-2.5 font-semibold transition-colors ${userShift === 2 ? "text-primary font-bold bg-primary/10 px-2 rounded-t-lg" : ""}`}>
+                  2-я смена {userShift === 2 && <span className="ml-1 text-[10px] font-normal text-primary">★ Твоя</span>}
+                </th>
+                <th className={`pb-2.5 font-semibold transition-colors ${userShift === 3 ? "text-primary font-bold bg-primary/10 px-2 rounded-t-lg" : ""}`}>
+                  3-я смена {userShift === 3 && <span className="ml-1 text-[10px] font-normal text-primary">★ Твоя</span>}
+                </th>
                 <th className="pb-2.5 font-semibold text-rose-600 dark:text-rose-400">Опоздавшие</th>
               </tr>
             </thead>
@@ -174,69 +239,104 @@ export function CanteenScheduleView() {
               <tr className="hover:bg-secondary/30">
                 <td className="py-2.5 font-bold">Завтрак</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">07:20 – 07:35</td>
-                <td className="py-2.5 tabular-nums">07:35 – 08:10</td>
-                <td className="py-2.5 tabular-nums">07:35 – 08:10</td>
-                <td className="py-2.5 tabular-nums">07:35 – 08:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 1 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>07:35 – 08:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 2 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>07:35 – 08:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 3 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>07:35 – 08:10</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">07:35 – 08:10</td>
               </tr>
               <tr className="hover:bg-secondary/30">
                 <td className="py-2.5 font-bold">2-й завтрак</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">11:50 – 12:00</td>
-                <td className="py-2.5 tabular-nums">12:00 – 12:25</td>
-                <td className="py-2.5 tabular-nums">12:00 – 12:25</td>
-                <td className="py-2.5 tabular-nums">12:00 – 12:25</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 1 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>12:00 – 12:25</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 2 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>12:00 – 12:25</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 3 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>12:00 – 12:25</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">12:00 – 12:25</td>
               </tr>
               <tr className="bg-primary/5 hover:bg-primary/10">
                 <td className="py-2.5 font-bold text-primary">Обед (посменно)</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">14:00 – 14:15</td>
-                <td className="py-2.5 font-semibold tabular-nums">14:15 – 14:30</td>
-                <td className="py-2.5 font-semibold tabular-nums">14:30 – 14:45</td>
-                <td className="py-2.5 font-semibold tabular-nums">14:45 – 15:00</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 1 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>14:15 – 14:30</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 2 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>14:30 – 14:45</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 3 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>14:45 – 15:00</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">15:00 – 15:10</td>
               </tr>
               <tr className="hover:bg-secondary/30">
                 <td className="py-2.5 font-bold">Полдник</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">17:20 – 17:30</td>
-                <td className="py-2.5 tabular-nums">17:30 – 17:55</td>
-                <td className="py-2.5 tabular-nums">17:30 – 17:55</td>
-                <td className="py-2.5 tabular-nums">17:30 – 17:55</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 1 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>17:30 – 17:55</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 2 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>17:30 – 17:55</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 3 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>17:30 – 17:55</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">17:30 – 17:55</td>
               </tr>
               <tr className="bg-primary/5 hover:bg-primary/10">
                 <td className="py-2.5 font-bold text-primary">Ужин (посменно)</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">19:15 – 19:30</td>
-                <td className="py-2.5 font-semibold tabular-nums">19:30 – 19:40</td>
-                <td className="py-2.5 font-semibold tabular-nums">19:40 – 19:50</td>
-                <td className="py-2.5 font-semibold tabular-nums">19:50 – 20:00</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 1 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>19:30 – 19:40</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 2 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>19:40 – 19:50</td>
+                <td className={`py-2.5 font-semibold tabular-nums ${userShift === 3 ? "bg-primary/15 font-bold text-primary px-2" : ""}`}>19:50 – 20:00</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">20:00 – 20:10</td>
               </tr>
               <tr className="hover:bg-secondary/30">
                 <td className="py-2.5 font-bold">2-й ужин</td>
                 <td className="py-2.5 tabular-nums text-amber-700 dark:text-amber-300">21:50 – 22:00</td>
-                <td className="py-2.5 tabular-nums">22:00 – 22:10</td>
-                <td className="py-2.5 tabular-nums">22:00 – 22:10</td>
-                <td className="py-2.5 tabular-nums">22:00 – 22:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 1 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>22:00 – 22:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 2 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>22:00 – 22:10</td>
+                <td className={`py-2.5 tabular-nums ${userShift === 3 ? "bg-primary/10 font-bold text-primary px-2" : ""}`}>22:00 – 22:10</td>
                 <td className="py-2.5 tabular-nums text-rose-600 dark:text-rose-400">22:00 – 22:10</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        {/* Справочник смен */}
+        {/* Справочник смен с подсветкой активной смены */}
         <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
-            <Badge variant="outline" className="mb-1 font-bold">1-я смена</Badge>
-            <p className="text-xs font-semibold">8-1, 11-1 … 11-9</p>
+          <div className={`rounded-xl border p-3 transition-all ${
+            userShift === 1
+              ? "border-primary bg-primary/10 ring-2 ring-primary/40 shadow-sm"
+              : "border-border/70 bg-secondary/30"
+          }`}>
+            <div className="flex items-center justify-between">
+              <Badge variant={userShift === 1 ? "default" : "outline"} className="mb-1 font-bold">
+                1-я смена
+              </Badge>
+              {userShift === 1 && (
+                <span className="text-[11px] font-bold text-primary">Твоя смена</span>
+              )}
+            </div>
+            <p className="text-xs font-semibold">8-1, 11-1 … 11-9 (и 11-11, 11-12)</p>
             <p className="mt-1 text-[11px] text-muted-foreground">Обед: 14:15 · Ужин: 19:30</p>
           </div>
-          <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
-            <Badge variant="outline" className="mb-1 font-bold">2-я смена</Badge>
+
+          <div className={`rounded-xl border p-3 transition-all ${
+            userShift === 2
+              ? "border-primary bg-primary/10 ring-2 ring-primary/40 shadow-sm"
+              : "border-border/70 bg-secondary/30"
+          }`}>
+            <div className="flex items-center justify-between">
+              <Badge variant={userShift === 2 ? "default" : "outline"} className="mb-1 font-bold">
+                2-я смена
+              </Badge>
+              {userShift === 2 && (
+                <span className="text-[11px] font-bold text-primary">Твоя смена</span>
+              )}
+            </div>
             <p className="text-xs font-semibold">10-1 … 10-9 (все 10-е)</p>
             <p className="mt-1 text-[11px] text-muted-foreground">Обед: 14:30 · Ужин: 19:40</p>
           </div>
-          <div className="rounded-xl border border-border/70 bg-secondary/30 p-3">
-            <Badge variant="outline" className="mb-1 font-bold">3-я смена</Badge>
+
+          <div className={`rounded-xl border p-3 transition-all ${
+            userShift === 3
+              ? "border-primary bg-primary/10 ring-2 ring-primary/40 shadow-sm"
+              : "border-border/70 bg-secondary/30"
+          }`}>
+            <div className="flex items-center justify-between">
+              <Badge variant={userShift === 3 ? "default" : "outline"} className="mb-1 font-bold">
+                3-я смена
+              </Badge>
+              {userShift === 3 && (
+                <span className="text-[11px] font-bold text-primary">Твоя смена</span>
+              )}
+            </div>
             <p className="text-xs font-semibold">9-1, 9-2, 9-3, 11-10</p>
             <p className="mt-1 text-[11px] text-muted-foreground">Обед: 14:45 · Ужин: 19:50</p>
           </div>

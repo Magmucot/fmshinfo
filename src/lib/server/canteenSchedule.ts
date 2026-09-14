@@ -230,17 +230,23 @@ export interface CurrentMealState {
   nextMealTime: string | null;
   minutesUntilNext: number | null;
   description: string;
+  userShift?: number;
+  userClassName?: string;
 }
 
 /**
  * Получение текущего состояния столовой по новосибирскому времени (UTC+7)
+ * с поддержкой конкретного класса (1-я, 2-я или 3-я смена)
  */
-export function getCurrentMealState(customDate?: Date): CurrentMealState {
+export function getCurrentMealState(customDate?: Date, className?: string): CurrentMealState {
   const now = customDate ?? new Date(Date.now() + 7 * 3600 * 1000);
   const hours = now.getUTCHours();
   const minutes = now.getUTCMinutes();
   const currentTotal = hours * 60 + minutes;
   const isWeekend = now.getUTCDay() === 0; // Воскресенье
+
+  const userShift = className ? getShiftForClass(className) : undefined;
+  const shiftKey = userShift ? (`shift${userShift}` as "shift1" | "shift2" | "shift3") : "shift1";
 
   if (isWeekend) {
     for (const m of WEEKEND_MEALS) {
@@ -262,7 +268,9 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
           nextMealName: m.meal,
           nextMealTime: mealStart,
           minutesUntilNext: ms - currentTotal,
-          description: `Дежурные готовят столовую к приёму: ${m.meal}`,
+          description: `Дежурные готовят столовую: ${m.meal} (${m.duty})`,
+          userShift,
+          userClassName: className,
         };
       }
       if (currentTotal >= ms && currentTotal < me) {
@@ -275,12 +283,14 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
           nextMealName: null,
           nextMealTime: null,
           minutesUntilNext: null,
-          description: `Сейчас в столовой: ${m.meal} (до ${mealEnd})`,
+          description: `Сейчас в столовой: ${m.meal} (${m.time})`,
+          userShift,
+          userClassName: className,
         };
       }
     }
 
-    // Поиск следующего приёма пищи
+    // Поиск следующего приёма пищи на выходных
     for (const m of WEEKEND_MEALS) {
       if (!m.available) continue;
       const [mealStart] = m.time.split("–").map((s) => s.trim());
@@ -293,9 +303,11 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
           currentShift: null,
           timeRange: null,
           nextMealName: m.meal,
-          nextMealTime: m.time,
+          nextMealTime: mealStart,
           minutesUntilNext: ms - currentTotal,
           description: `Следующий приём: ${m.meal} в ${mealStart} (через ${ms - currentTotal} мин)`,
+          userShift,
+          userClassName: className,
         };
       }
     }
@@ -309,7 +321,9 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
       nextMealName: "Завтрак",
       nextMealTime: "08:35 (завтра)",
       minutesUntilNext: null,
-      description: "Столовая закрыта до утра",
+      description: "Столовая закрыта до утра (завтрак в 08:35)",
+      userShift,
+      userClassName: className,
     };
   }
 
@@ -319,67 +333,151 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
     const ds = parseMinutes(dutyStart);
     const de = parseMinutes(dutyEnd);
 
+    // 1. Время дежурных по столовой
     if (currentTotal >= ds && currentTotal < de) {
+      const userMealStart = m[shiftKey].split("–")[0].trim();
+      const userMealRange = m[shiftKey];
+      const waitMin = parseMinutes(userMealStart) - currentTotal;
       return {
         isWeekend: false,
         status: "duty",
         currentMealName: m.meal,
         currentShift: "Дежурные по столовой",
-        timeRange: m.duty,
+        timeRange: userShift ? userMealRange : m.duty,
         nextMealName: m.meal,
-        nextMealTime: m.shift1.split("–")[0].trim(),
-        minutesUntilNext: parseMinutes(m.shift1.split("–")[0].trim()) - currentTotal,
-        description: `Дежурные накрывают столы: ${m.meal} (${m.duty})`,
+        nextMealTime: userMealStart,
+        minutesUntilNext: waitMin,
+        description: userShift && className
+          ? `Дежурные накрывают: ${m.meal} · Твой класс (${className}, ${userShift}-я смена) в ${userMealStart}`
+          : `Дежурные накрывают столы: ${m.meal} (${m.duty})`,
+        userShift,
+        userClassName: className,
       };
     }
 
-    // Проверка смен
+    // 2. Время приёма пищи (по сменам)
     const shifts = [
-      { shiftName: "1-я смена (8-1, 11 кл)", range: m.shift1 },
-      { shiftName: "2-я смена (10 кл)", range: m.shift2 },
-      { shiftName: "3-я смена (9 кл, 11-10)", range: m.shift3 },
-      { shiftName: "Опоздавшие", range: m.late },
+      { shiftNum: 1, shiftName: "1-я смена (8-1, 11 кл)", range: m.shift1 },
+      { shiftNum: 2, shiftName: "2-я смена (10 кл)", range: m.shift2 },
+      { shiftNum: 3, shiftName: "3-я смена (9 кл, 11-10)", range: m.shift3 },
+      { shiftNum: 0, shiftName: "Опоздавшие", range: m.late },
     ];
 
-    for (const sh of shifts) {
-      const [sStart, sEnd] = sh.range.split("–").map((s) => s.trim());
-      const ss = parseMinutes(sStart);
-      const se = parseMinutes(sEnd);
-      if (currentTotal >= ss && currentTotal < se) {
-        return {
-          isWeekend: false,
-          status: "active",
-          currentMealName: m.meal,
-          currentShift: sh.shiftName,
-          timeRange: sh.range,
-          nextMealName: null,
-          nextMealTime: null,
-          minutesUntilNext: null,
-          description: `Сейчас в столовой: ${m.meal} — ${sh.shiftName} (${sh.range})`,
-        };
+    const mealStartMin = parseMinutes(m.shift1.split("–")[0].trim());
+    const mealEndMin = parseMinutes((m.late || m.shift3).split("–")[1].trim());
+
+    if (currentTotal >= mealStartMin && currentTotal < mealEndMin) {
+      const activeShift = shifts.find((sh) => {
+        const [s, e] = sh.range.split("–").map((t) => parseMinutes(t.trim()));
+        return currentTotal >= s && currentTotal < e;
+      });
+
+      if (userShift && className) {
+        const userRange = m[shiftKey];
+        const [uStart, uEnd] = userRange.split("–").map((s) => s.trim());
+        const uStartMin = parseMinutes(uStart);
+        const uEndMin = parseMinutes(uEnd);
+
+        // Пользователь сейчас ест
+        if (currentTotal >= uStartMin && currentTotal < uEndMin) {
+          return {
+            isWeekend: false,
+            status: "active",
+            currentMealName: m.meal,
+            currentShift: `Твоя ${userShift}-я смена (${className})`,
+            timeRange: userRange,
+            nextMealName: null,
+            nextMealTime: null,
+            minutesUntilNext: null,
+            description: `Сейчас в столовой: ${m.meal} — Твоя ${userShift}-я смена (${userRange})`,
+            userShift,
+            userClassName: className,
+          };
+        }
+
+        // Приём уже начался, но смена пользователя ещё впереди
+        if (currentTotal < uStartMin) {
+          const waitMin = uStartMin - currentTotal;
+          return {
+            isWeekend: false,
+            status: "active",
+            currentMealName: m.meal,
+            currentShift: activeShift?.shiftName ?? "Другая смена",
+            timeRange: userRange,
+            nextMealName: m.meal,
+            nextMealTime: uStart,
+            minutesUntilNext: waitMin,
+            description: `В столовой: ${m.meal} (${activeShift?.shiftName ?? "смена"}) · Твой класс (${className}, ${userShift}-я см) в ${uStart} (через ${waitMin} мин)`,
+            userShift,
+            userClassName: className,
+          };
+        }
+
+        // Смена пользователя уже прошла
+        if (currentTotal >= uEndMin) {
+          const nextM = WEEKDAY_MEALS.find((nm) => nm.order > m.order);
+          const nextStart = nextM ? nextM[shiftKey].split("–")[0].trim() : null;
+          const nextWait = nextStart ? parseMinutes(nextStart) - currentTotal : null;
+
+          return {
+            isWeekend: false,
+            status: "active",
+            currentMealName: m.meal,
+            currentShift: activeShift?.shiftName ?? "Завершение",
+            timeRange: userRange,
+            nextMealName: nextM?.meal ?? null,
+            nextMealTime: nextStart,
+            minutesUntilNext: nextWait,
+            description: nextM
+              ? `В столовой: ${m.meal} (${activeShift?.shiftName ?? ""}) · Твоя смена пообедала. Следующий: ${nextM.meal} в ${nextStart}`
+              : `В столовой: ${m.meal} (${activeShift?.shiftName ?? ""}) · Твоя смена завершена`,
+            userShift,
+            userClassName: className,
+          };
+        }
       }
+
+      // Без указания класса
+      return {
+        isWeekend: false,
+        status: "active",
+        currentMealName: m.meal,
+        currentShift: activeShift?.shiftName ?? "Все классы",
+        timeRange: activeShift?.range ?? m.shift1,
+        nextMealName: null,
+        nextMealTime: null,
+        minutesUntilNext: null,
+        description: `Сейчас в столовой: ${m.meal} — ${activeShift?.shiftName ?? ""} (${activeShift?.range ?? ""})`,
+      };
     }
   }
 
-  // Поиск ближайшего будущего приёма пищи
+  // 3. Ближайший будущий приём пищи
   for (const m of WEEKDAY_MEALS) {
-    const [sStart] = m.shift1.split("–").map((s) => s.trim());
+    const sStart = m[shiftKey].split("–")[0].trim();
     const ms = parseMinutes(sStart);
     if (ms > currentTotal) {
+      const waitMin = ms - currentTotal;
       return {
         isWeekend: false,
         status: "upcoming",
         currentMealName: null,
         currentShift: null,
-        timeRange: null,
+        timeRange: m[shiftKey],
         nextMealName: m.meal,
         nextMealTime: sStart,
-        minutesUntilNext: ms - currentTotal,
-        description: `Следующий приём: ${m.meal} в ${sStart} (через ${ms - currentTotal} мин)`,
+        minutesUntilNext: waitMin,
+        description: userShift && className
+          ? `Следующий приём: ${m.meal} для ${userShift}-й смены (${className}) в ${sStart} (через ${waitMin} мин)`
+          : `Следующий приём: ${m.meal} в ${sStart} (через ${waitMin} мин)`,
+        userShift,
+        userClassName: className,
       };
     }
   }
 
+  // 4. Столовая закрыта на ночь
+  const morningStart = WEEKDAY_MEALS[0][shiftKey].split("–")[0].trim();
   return {
     isWeekend: false,
     status: "closed",
@@ -387,8 +485,10 @@ export function getCurrentMealState(customDate?: Date): CurrentMealState {
     currentShift: null,
     timeRange: null,
     nextMealName: "Завтрак",
-    nextMealTime: "07:35 (завтра)",
+    nextMealTime: `${morningStart} (завтра)`,
     minutesUntilNext: null,
-    description: "Столовая закрыта на ночь до 07:20",
+    description: `Столовая закрыта на ночь до 07:20 (завтрак ${morningStart})`,
+    userShift,
+    userClassName: className,
   };
 }

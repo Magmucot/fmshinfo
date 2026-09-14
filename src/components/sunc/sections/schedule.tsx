@@ -21,6 +21,7 @@ import {
   BellRing, CalendarDays, DoorOpen, User, Users, Coffee, BookOpen, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { useBells, useClasses, useSchedule } from "../api";
+import { useUserClass } from "../useUserClass";
 import { ErrorCard, LoadingBlock, SectionCard, StaleBadge, EmptyState } from "../shared";
 import { WEEKDAYS, nowNsk } from "../types";
 import type { ScheduleLesson } from "../types";
@@ -575,37 +576,13 @@ function DayScheduleCard({
 
 function ClassSchedule() {
   const classes = useClasses();
-  const [selected, setSelected] = useState<string | null>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        return localStorage.getItem("sunc_user_class") ?? null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  });
+  const [selectedClass, setSelectedClass] = useUserClass();
 
   const effectiveSelected =
-    selected ?? classes.data?.classes.find((c) => c === "10-4") ?? classes.data?.classes[0] ?? null;
+    selectedClass || classes.data?.classes.find((c) => c === "10-4") || classes.data?.classes[0] || null;
 
   const handleSelectClass = (cls: string) => {
-    setSelected(cls);
-    try {
-      localStorage.setItem("sunc_user_class", cls);
-      const clientId = localStorage.getItem("sunc_client_id");
-      if (clientId) {
-        fetch("/api/users/web", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientId,
-            className: cls,
-            path: "/schedule",
-          }),
-        }).catch(() => {});
-      }
-    } catch {}
+    setSelectedClass(cls);
   };
 
   const schedule = useSchedule(effectiveSelected);
