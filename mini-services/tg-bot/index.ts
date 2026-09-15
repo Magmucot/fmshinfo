@@ -414,7 +414,7 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
 }
 
 /** Прямая немедленная синхронизация пользователя с базой данных (Prisma SQLite) через API */
-export async function syncUserToDb(userId: number, actionName?: string) {
+export async function syncUserToDb(userId: number, actionName?: string): Promise<boolean> {
   const profile = userProfiles.get(userId);
   const cls = profile?.className ?? userClassMap.get(userId) ?? null;
   const sub = userSubgroupMap.get(userId) ?? null;
@@ -442,21 +442,28 @@ export async function syncUserToDb(userId: number, actionName?: string) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     if (res.ok) {
       botLogger.debug("DB_SYNC", `User ${userId} synced to DB: class=${cls} sub=${sub} eng=${eng}`);
+      return true;
     }
   } catch (err: any) {
     lastApiSyncMap.delete(userId);
     botLogger.debug("DB_SYNC", `Sync to DB failed for user ${userId}: ${err?.message}`);
   }
+  return false;
 }
 
 /** Первичная фоновая синхронизация всех пользователей бота с БД при старте */
 export async function backfillUsersToDb() {
   try {
     botLogger.info("DB_BACKFILL", `Синхронизация профилей с базой данных (${userProfiles.size} пользователей)...`);
+    let failed = 0;
     for (const id of userProfiles.keys()) {
-      await syncUserToDb(id, "startup_backfill");
+      if (!(await syncUserToDb(id, "startup_backfill"))) failed += 1;
     }
-    botLogger.info("DB_BACKFILL", "Синхронизация профилей с БД успешно завершена");
+    if (failed > 0) {
+      botLogger.warn("DB_BACKFILL", `Синхронизация завершена с ошибками: ${failed} из ${userProfiles.size} профилей не отправлены`);
+    } else {
+      botLogger.info("DB_BACKFILL", "Синхронизация профилей с БД успешно завершена");
+    }
   } catch (e: any) {
     botLogger.error("DB_BACKFILL", "Ошибка backfill в базу данных", e);
   }

@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
+    "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
     "test:auth": "node --experimental-strip-types --test tests/auth.test.mjs",
     "test:unit": "node --experimental-strip-types --test tests/auth.test.mjs tests/payloads.test.mjs tests/bot-preferences.test.mjs",

@@ -86,6 +86,24 @@ nano "$HOME/.config/sunc-tg-bot.env"
 
 В env-файле укажите настоящий токен, тот же `ADMIN_KEY`, что задан у портала, и проверьте `BUN_BIN`: команда `command -v bun` должна совпадать с этим путём. Если портал запущен на другом сервере, замените `PORTAL_API` на его URL.
 
+Портал также должен работать на `127.0.0.1:3000`. Для этого репозиторий содержит user-level unit:
+
+```bash
+cd /home/mag/fmshinfo
+bun install --frozen-lockfile
+bun run build
+cp deploy/systemd/sunc-portal.user.service "$HOME/.config/systemd/user/sunc-portal.service"
+cp deploy/systemd/sunc-portal.user.env.example "$HOME/.config/sunc-portal.env"
+chmod 600 "$HOME/.config/sunc-portal.env"
+nano "$HOME/.config/sunc-portal.env"
+systemctl --user daemon-reload
+systemctl --user enable --now sunc-portal
+systemctl --user status sunc-portal --no-pager
+curl --fail http://127.0.0.1:3000/api/bells >/dev/null
+```
+
+В `DATABASE_URL` укажите путь именно этого сервера (`/home/mag/fmshinfo/db/custom.db`), а не путь из машины разработки. `ADMIN_KEY` портала должен совпадать с `ADMIN_KEY` бота. Сначала запустите `sunc-portal`, затем `sunc-tg-bot`.
+
 Перед запуском установите зависимости и проверьте, что API портала уже работает:
 
 ```bash
@@ -105,6 +123,52 @@ sudo loginctl enable-linger mag
 ```
 
 Диагностика: `journalctl --user -u sunc-tg-bot -n 100 -e --no-pager`; поток логов — `journalctl --user -u sunc-tg-bot -f`; перезапуск после обновления — `systemctl --user restart sunc-tg-bot`. Остановить — `systemctl --user disable --now sunc-tg-bot`. Не запускайте одновременно старый `bun index.ts`, `.zscripts/mini-services-start.sh` и systemd для одного токена: Telegram допускает только один polling-процесс.
+
+### Самый простой вариант без systemd
+
+Если нужен запуск в стиле `nohup`, готовый helper запускает портал, ждёт его API, затем бот; PID и логи сохраняются в `~/.local/state/sunc-info`:
+
+```bash
+cd /home/mag/fmshinfo
+bun install --frozen-lockfile
+bun run build
+chmod +x deploy/start-nohup.sh
+./deploy/start-nohup.sh start
+./deploy/start-nohup.sh status
+```
+
+Остановить и посмотреть логи:
+
+```bash
+./deploy/start-nohup.sh stop
+tail -f ~/.local/state/sunc-info/bot.log
+tail -f ~/.local/state/sunc-info/portal.log
+```
+
+Этот вариант переживает выход из SSH, но не перезагрузку сервера и не аварийное завершение. Для работы после reboot используйте user-level systemd. Не запускайте оба способа одновременно.
+
+### Самый простой вариант без systemd
+
+Если нужен запуск в стиле `nohup`, готовый helper запускает портал, ждёт его API, затем бот; PID и логи сохраняются в `~/.local/state/sunc-info`:
+
+```bash
+cd /home/mag/fmshinfo
+bun install --frozen-lockfile
+bun run build
+chmod +x deploy/start-nohup.sh
+./deploy/start-nohup.sh start
+./deploy/start-nohup.sh status
+```
+
+Остановить и посмотреть логи:
+
+```bash
+./deploy/start-nohup.sh stop
+tail -f ~/.local/state/sunc-info/bot.log
+tail -f ~/.local/state/sunc-info/portal.log
+```
+
+Этот вариант переживает выход из SSH, но не перезагрузку сервера и не аварийное завершение. Для работы после reboot используйте user-level systemd. Не запускайте оба способа одновременно.
 
 ## Проверки перед переносом
 

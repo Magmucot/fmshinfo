@@ -94,3 +94,5 @@ Telegram ←→ grammY long polling
 Готовый запуск через systemd: [инструкция](../../deploy/systemd/README.md). Для клона в домашнем каталоге используйте [user unit](../../deploy/systemd/sunc-tg-bot.user.service) и [его конфигурацию](../../deploy/systemd/sunc-tg-bot.user.env.example); для `/opt` — системный [unit](../../deploy/systemd/sunc-tg-bot.service).
 
 Скрипт `run-production.sh` запускает Bun без hot reload и требует `TELEGRAM_BOT_TOKEN`, `ADMIN_KEY`, `PORTAL_API`. Профили и логи хранятся вне кода; SIGTERM сохраняет профили, ошибки старта завершают процесс для автоперезапуска.
+
+Бот получает расписание и меню от портала. Если `PORTAL_API=http://127.0.0.1:3000`, запустите также user-level службу портала `sunc-portal`; её unit и инструкция находятся рядом с bot unit.

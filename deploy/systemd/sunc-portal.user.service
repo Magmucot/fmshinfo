@@ -1,0 +1,25 @@
+[Unit]
+Description=SUNC Info portal
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=%h/fmshinfo
+EnvironmentFile=%h/.config/sunc-portal.env
+ExecStart=%h/fmshinfo/deploy/systemd/run-portal-production.sh
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sunc-portal
+
+[Install]
+WantedBy=default.target
