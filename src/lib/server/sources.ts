@@ -112,6 +112,3 @@ export const SCHOOL_INFO = {
     "Каждый месяц подводится текущая аттестация (месячный балл); по окончании семестра — сессия.",
   ],
 } as const;
-
-/** Ключ администратора для POST-эндпоинтов дежурств/вожатых */
-export const ADMIN_KEY = process.env.ADMIN_KEY ?? "sunc-admin";

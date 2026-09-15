@@ -1,75 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { portalLogger } from "@/lib/server/logger";
+import { webPayload } from "@/lib/server/payloads";
 
 export const dynamic = "force-dynamic";
 
-interface WebVisitorPayload {
-  clientId?: string;
-  className?: string | null;
-  subgroup?: number | null;
-  userAgent?: string | null;
-  path?: string | null;
-}
-
-/**
- * POST /api/users/web
- * Регистрирует или обновляет сессию посетителя веб-портала.
- */
+/** Record a visit without returning the visitor's stored profile to a public caller. */
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as WebVisitorPayload;
-    const clientId = (body.clientId ?? "").trim();
-    if (!clientId) {
-      portalLogger.warn("WEB_API", "POST /api/users/web rejected: missing clientId");
-      return NextResponse.json({ ok: false, error: "Отсутствует clientId" }, { status: 400 });
+    const parsed = webPayload.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Некорректные данные посетителя" }, { status: 400 });
     }
-
-    const className = body.className ? body.className.trim() : null;
-    const subgroup = body.subgroup !== undefined
-      ? (typeof body.subgroup === "number" ? body.subgroup : (body.subgroup ? Number(body.subgroup) : null))
-      : undefined;
-    const userAgent = body.userAgent ? body.userAgent.slice(0, 500) : request.headers.get("user-agent")?.slice(0, 500) ?? null;
-    const path = body.path ? body.path.slice(0, 200) : null;
-
-    const existing = await db.webVisitor.findUnique({
+    const { clientId, path, ...profile } = parsed.data;
+    const data = {
+      ...profile,
+      userAgent: profile.userAgent === undefined
+        ? request.headers.get("user-agent")?.slice(0, 500)
+        : profile.userAgent,
+      lastPath: path,
+    };
+    const visitor = await db.webVisitor.upsert({
       where: { id: clientId },
+      create: { id: clientId, ...data, visitsCount: 1 },
+      update: { ...data, visitsCount: { increment: 1 }, lastActiveAt: new Date() },
+      select: { visitsCount: true },
     });
-
-    const now = new Date();
-
-    if (existing) {
-      const updated = await db.webVisitor.update({
-        where: { id: clientId },
-        data: {
-          className: className ?? existing.className,
-          subgroup: subgroup !== undefined ? subgroup : existing.subgroup,
-          userAgent: userAgent ?? existing.userAgent,
-          lastPath: path ?? existing.lastPath,
-          visitsCount: { increment: 1 },
-          lastActiveAt: now,
-        },
-      });
-      portalLogger.info("WEB_VISITOR", `Visitor ${clientId} active on ${path ?? "/"} | class=${className ?? existing.className ?? "none"} sub=${updated.subgroup ?? "none"} (visits: ${updated.visitsCount})`);
-      return NextResponse.json({ ok: true, visitor: updated, isNew: false });
-    } else {
-      const created = await db.webVisitor.create({
-        data: {
-          id: clientId,
-          className,
-          subgroup: subgroup ?? null,
-          userAgent,
-          lastPath: path,
-          visitsCount: 1,
-          firstSeenAt: now,
-          lastActiveAt: now,
-        },
-      });
-      portalLogger.info("WEB_VISITOR", `New web visitor ${clientId} on ${path ?? "/"} | class=${className ?? "none"} sub=${created.subgroup ?? "none"}`);
-      return NextResponse.json({ ok: true, visitor: created, isNew: true });
-    }
+    return NextResponse.json({ ok: true, isNew: visitor.visitsCount === 1 });
   } catch (error) {
     portalLogger.error("WEB_API", "POST /api/users/web error", error);
-    return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Не удалось сохранить посещение" }, { status: 500 });
   }
 }

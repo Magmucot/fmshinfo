@@ -20,6 +20,7 @@ import {
 import {
   useBells, useCanteenSchedule, useDuty, useCounselors, useEvents, useMenu, useMenuStats, useNews, useWeather, useUsersStats,
 } from "../api";
+import { useSchoolClock } from "../useSchoolClock";
 import { useUserClass } from "../useUserClass";
 import { ErrorCard, LoadingBlock, MacroPills, SectionCard, humanDate } from "../shared";
 import { InstallBannerCard } from "../install-banner";
@@ -44,11 +45,11 @@ function LiveCampusIsland({
   const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
-  const current = bells.find((b) => minutes >= toMin(b.begin) && minutes < toMin(b.end));
-  const next = bells.find((b) => toMin(b.begin) > minutes);
+  const current = bells.find((b) => now.getUTCDay() !== 0 && minutes >= toMin(b.begin) && minutes < toMin(b.end));
+  const next = bells.find((b) => now.getUTCDay() !== 0 && toMin(b.begin) > minutes);
   const isSunday = now.getUTCDay() === 0;
 
-  let bellStatusText = "Учебный день завершён";
+  let bellStatusText = bells.length ? "Учебный день завершён" : "Расписание звонков недоступно";
   let bellBadgeColor = "bg-secondary text-muted-foreground";
 
   if (current) {
@@ -129,14 +130,14 @@ export function BellNow({ bells, loading }: { bells: Bell[]; loading: boolean })
       </div>
     );
   }
-  if (!bells.length) return <LoadingBlock lines={2} />;
+  if (!bells.length) return <p className="text-sm text-muted-foreground">Расписание звонков недоступно</p>;
 
   const now = nowNsk();
   const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
-  const current = bells.find((b) => minutes >= toMin(b.begin) && minutes < toMin(b.end));
-  const next = bells.find((b) => toMin(b.begin) > minutes);
+  const current = bells.find((b) => now.getUTCDay() !== 0 && minutes >= toMin(b.begin) && minutes < toMin(b.end));
+  const next = bells.find((b) => now.getUTCDay() !== 0 && toMin(b.begin) > minutes);
   const prevEnd = [...bells].reverse().find((b) => toMin(b.end) <= minutes);
 
   const isSunday = now.getUTCDay() === 0;
@@ -265,12 +266,13 @@ export function DashboardSection({
   onNavigate: (tab: string, opts?: { canteenView?: "menu" | "schedule" | "analytics" }) => void;
 }) {
   const [userClass] = useUserClass();
+  const clock = useSchoolClock();
   const weather = useWeather();
   const bells = useBells();
   const menu = useMenu();
   const canteenSchedule = useCanteenSchedule(userClass);
-  const duty = useDuty(fmtRu(nowNsk()));
-  const counselors = useCounselors(fmtRu(nowNsk()));
+  const duty = useDuty(clock ? fmtRu(clock) : undefined);
+  const counselors = useCounselors(clock ? fmtRu(clock) : undefined);
   const news = useNews(4);
   const events = useEvents();
   const usersStats = useUsersStats();
@@ -281,7 +283,8 @@ export function DashboardSection({
   // Фоновый прогрев кэша статистики питания (раздел «Аналитика»)
   useMenuStats(10);
 
-  const today = fmtRu(nowNsk());
+  if (!clock) return <LoadingBlock lines={4} />;
+  const today = fmtRu(clock);
   const todayTs = parseRuDate(today)?.getTime() ?? 0;
   // Ближайшие 4 события (от сегодня и позже)
   const upcoming = (events.data?.days ?? [])

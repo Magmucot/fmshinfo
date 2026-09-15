@@ -13,8 +13,10 @@
  *  - Премиальный дизайн сообщений в Telegram (карточки, иконки, моноширинные блоки).
  */
 
+import { scheduleButtonDay } from "./schedule-day";
+import { changeSavedClass, isSavedClass } from "./preferences";
 import { Bot, Context, InlineKeyboard, Keyboard } from "grammy";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
 import { join } from "path";
 import { botLogger, getRecentBotLogs } from "./logger";
 
@@ -37,22 +39,55 @@ function loadRootEnv() {
     } catch {}
   }
 }
-loadRootEnv();
+if (process.env.NODE_ENV !== "production") loadRootEnv();
 
-const PORT = 3003;
+const PORT = Number(process.env.BOT_PORT ?? 3003);
+const HEALTH_HOST = process.env.BOT_HOST ?? "127.0.0.1";
 const API = process.env.PORTAL_API ?? "http://localhost:3000";
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-const ADMIN_KEY = process.env.ADMIN_KEY ?? "sunc-admin";
+const ADMIN_KEY = process.env.ADMIN_KEY ?? "";
 
-const USERS_FILE = join(__dirname, "users.json");
-const USER_CLASSES_FILE = join(__dirname, "user_classes.json");
-const USER_SUBGROUPS_FILE = join(__dirname, "user_subgroups.json");
-const ADMINS_FILE = join(__dirname, "admins.json");
+const DATA_DIR = process.env.BOT_DATA_DIR ?? __dirname;
+mkdirSync(DATA_DIR, { recursive: true });
+const USERS_FILE = join(DATA_DIR, "users.json");
+const USER_CLASSES_FILE = join(DATA_DIR, "user_classes.json");
+const USER_SUBGROUPS_FILE = join(DATA_DIR, "user_subgroups.json");
+const ADMINS_FILE = join(DATA_DIR, "admins.json");
+
+// Atomic replacement keeps an interrupted write from truncating a JSON file.
+function writeJsonAtomically(path: string, content: string, encoding: "utf-8") {
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, content, { encoding, mode: 0o600 });
+  renameSync(temporary, path);
+}
+
+let activeBot: Bot | undefined;
+let pollingReady = false;
+let stopping = false;
+let stopHealth: (() => void) | undefined;
+
+async function shutdown(exitCode = 0) {
+  if (stopping) return;
+  stopping = true;
+  pollingReady = false;
+  const deadline = setTimeout(() => process.exit(exitCode || 1), 20_000);
+  deadline.unref();
+  if (saveUsersTimeout) clearTimeout(saveUsersTimeout);
+  saveUsersToDisk();
+  try {
+    if (activeBot?.isRunning()) await activeBot.stop();
+  } finally {
+    // Persist changes from an update that was still being handled at SIGTERM.
+    saveUsersToDisk();
+    stopHealth?.();
+    process.exit(exitCode);
+  }
+}
 
 /* -------------------- Система авторизации и администраторов ---------- */
 
-// Владелец по умолчанию: 1573047506 (@Maagicus)
-const defaultAdmins = new Set<number>([1573047506]);
+// Production administrators are explicitly configured; retain the local development owner.
+const defaultAdmins = new Set<number>(process.env.NODE_ENV === "production" ? [] : [1573047506]);
 if (process.env.ADMIN_TG_IDS) {
   for (const idStr of process.env.ADMIN_TG_IDS.split(",")) {
     const num = Number(idStr.trim());
@@ -80,7 +115,7 @@ loadVerifiedAdmins();
 
 function saveVerifiedAdmins() {
   try {
-    writeFileSync(ADMINS_FILE, JSON.stringify(Array.from(verifiedAdminIds), null, 2), "utf-8");
+    writeJsonAtomically(ADMINS_FILE, JSON.stringify(Array.from(verifiedAdminIds), null, 2), "utf-8");
   } catch (e) {
     console.error("[tg-bot] Ошибка сохранения admins.json:", e);
   }
@@ -282,9 +317,9 @@ function saveUsersToDisk() {
         };
       }
     }
-    writeFileSync(USERS_FILE, JSON.stringify(usersObj, null, 2), "utf-8");
-    writeFileSync(USER_CLASSES_FILE, JSON.stringify(classesObj, null, 2), "utf-8");
-    writeFileSync(USER_SUBGROUPS_FILE, JSON.stringify(subgroupsObj, null, 2), "utf-8");
+    writeJsonAtomically(USERS_FILE, JSON.stringify(usersObj, null, 2), "utf-8");
+    writeJsonAtomically(USER_CLASSES_FILE, JSON.stringify(classesObj, null, 2), "utf-8");
+    writeJsonAtomically(USER_SUBGROUPS_FILE, JSON.stringify(subgroupsObj, null, 2), "utf-8");
   } catch (e) {
     console.error("[tg-bot] Ошибка сохранения users.json:", e);
   }
@@ -331,8 +366,8 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
     firstName: firstName ?? existing?.firstName ?? null,
     lastName: lastName ?? existing?.lastName ?? null,
     className: cls,
-    subgroup: userSubgroupMap.get(id) ?? existing?.subgroup ?? null,
-    englishGroup: userEnglishMap.get(id) ?? existing?.englishGroup ?? null,
+    subgroup: userSubgroupMap.get(id) ?? null,
+    englishGroup: userEnglishMap.get(id) ?? null,
     languageCode: languageCode ?? existing?.languageCode ?? null,
     isPremium: isPremium ?? existing?.isPremium ?? false,
     actionsCount: (existing?.actionsCount ?? 0) + 1,
@@ -355,7 +390,8 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
     lastApiSyncMap.set(id, nowTime);
     fetch(`${API}/api/users/telegram`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Admin-Key": ADMIN_KEY },
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         id: String(id),
         username,
@@ -368,7 +404,10 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
         isPremium,
         action,
       }),
+    }).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
     }).catch((err) => {
+      lastApiSyncMap.delete(id);
       botLogger.debug("API_SYNC", `Sync failed for user ${id}: ${(err as Error).message}`);
     });
   }
@@ -378,14 +417,15 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
 export async function syncUserToDb(userId: number, actionName?: string) {
   const profile = userProfiles.get(userId);
   const cls = profile?.className ?? userClassMap.get(userId) ?? null;
-  const sub = userSubgroupMap.get(userId) ?? profile?.subgroup ?? null;
-  const eng = userEnglishMap.get(userId) ?? profile?.englishGroup ?? null;
+  const sub = userSubgroupMap.get(userId) ?? null;
+  const eng = userEnglishMap.get(userId) ?? null;
 
   try {
     lastApiSyncMap.set(userId, Date.now());
     const res = await fetch(`${API}/api/users/telegram`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Admin-Key": ADMIN_KEY },
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         id: String(userId),
         username: profile?.username ?? null,
@@ -399,10 +439,12 @@ export async function syncUserToDb(userId: number, actionName?: string) {
         action: actionName ?? profile?.lastAction ?? "sync",
       }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     if (res.ok) {
       botLogger.debug("DB_SYNC", `User ${userId} synced to DB: class=${cls} sub=${sub} eng=${eng}`);
     }
   } catch (err: any) {
+    lastApiSyncMap.delete(userId);
     botLogger.debug("DB_SYNC", `Sync to DB failed for user ${userId}: ${err?.message}`);
   }
 }
@@ -422,7 +464,7 @@ export async function backfillUsersToDb() {
 
 function saveUserClass(userId: number, className: string, ctx?: Context) {
   const oldClass = userClassMap.get(userId);
-  userClassMap.set(userId, className);
+  changeSavedClass(userId, className, userClassMap, userSubgroupMap, userEnglishMap);
   botLogger.setclass(userId, ctx?.from?.username ?? null, oldClass, className);
 
   if (ctx) {
@@ -431,8 +473,11 @@ function saveUserClass(userId: number, className: string, ctx?: Context) {
     const existing = userProfiles.get(userId);
     const nowStr = new Date().toISOString();
     userProfiles.set(userId, {
+      ...existing,
       id: userId,
       className,
+      subgroup: userSubgroupMap.get(userId) ?? null,
+      englishGroup: userEnglishMap.get(userId) ?? null,
       actionsCount: (existing?.actionsCount ?? 0) + 1,
       lastAction: "setclass",
       firstSeenAt: existing?.firstSeenAt ?? nowStr,
@@ -607,10 +652,10 @@ interface StatsResponse {
 // Кэш ответов API портала (защита от частых повторных запросов)
 const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
 
-async function api<T>(path: string, ttlMs = 30_000): Promise<T | null> {
+async function api<T>(path: string, ttlMs = 30_000, privileged = false): Promise<T | null> {
   const now = Date.now();
   const cached = apiCache.get(path);
-  if (cached && cached.expiresAt > now) {
+  if (!privileged && cached && cached.expiresAt > now) {
     return cached.data as T;
   }
 
@@ -618,7 +663,7 @@ async function api<T>(path: string, ttlMs = 30_000): Promise<T | null> {
   try {
     const res = await fetch(`${API}${path}`, {
       signal: AbortSignal.timeout(60_000),
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", ...(privileged ? { "X-Admin-Key": ADMIN_KEY } : {}) },
     });
     const dur = Date.now() - start;
     if (!res.ok) {
@@ -628,7 +673,7 @@ async function api<T>(path: string, ttlMs = 30_000): Promise<T | null> {
     botLogger.api(path, res.status, dur);
     const json = (await res.json()) as T;
     // Кэшируем только публичные данные без ключей администратора
-    if (!path.includes("adminKey")) {
+    if (!privileged) {
       apiCache.set(path, { data: json, expiresAt: now + ttlMs });
     }
     return json;
@@ -730,8 +775,8 @@ export async function getEnglishGroupsForClass(className: string): Promise<Engli
           const id = l.teacher || l.subgroup || l.lesson;
           map.set(key, {
             lesson: l.lesson,
-            subgroup: l.subgroup,
-            teacher: l.teacher,
+            subgroup: l.subgroup ?? null,
+            teacher: l.teacher ?? null,
             label,
             id,
           });
@@ -1084,8 +1129,8 @@ export async function scheduleText(
     };
   }
 
-  const userSub = (forceFullClass || !userId) ? undefined : userSubgroupMap.get(userId);
-  const userEng = (forceFullClass || !userId) ? undefined : userEnglishMap.get(userId);
+  const userSub = (forceFullClass || !isSavedClass(userId, group, userClassMap) || !userId) ? undefined : userSubgroupMap.get(userId);
+  const userEng = (forceFullClass || !isSavedClass(userId, group, userClassMap) || !userId) ? undefined : userEnglishMap.get(userId);
   const isFilteringActive = Boolean(userSub || userEng);
 
   const rawDayLessons = data.days[String(wd)] ?? [];
@@ -1266,7 +1311,7 @@ export async function scheduleText(
     .text("Пн", `sched:${group}:1`).text("Вт", `sched:${group}:2`).text("Ср", `sched:${group}:3`)
     .text("Чт", `sched:${group}:4`).text("Пт", `sched:${group}:5`).text("Сб", `sched:${group}:6`).row();
 
-  const hasConfiguredSubgroups = userId ? Boolean(userSubgroupMap.get(userId) || userEnglishMap.get(userId)) : false;
+  const hasConfiguredSubgroups = userId && isSavedClass(userId, group, userClassMap) ? Boolean(userSubgroupMap.get(userId) || userEnglishMap.get(userId)) : false;
   if (hasConfiguredSubgroups) {
     if (forceFullClass) {
       keyboard.text("👤 Моя подгруппа", `sched:${group}:${wd}:my`);
@@ -1274,7 +1319,7 @@ export async function scheduleText(
       keyboard.text("👥 Весь класс", `sched:${group}:${wd}:full`);
     }
     keyboard.text("⚙️ Подгруппы", `subgroup:menu:${group}`).row();
-  } else {
+  } else if (isSavedClass(userId, group, userClassMap)) {
     keyboard.text("⚙️ Выбрать подгруппу", `subgroup:menu:${group}`).row();
   }
 
@@ -1527,6 +1572,7 @@ export async function infoText(): Promise<string> {
 
 function main() {
   const bot = new Bot(TOKEN || "000:placeholder");
+  activeBot = bot;
 
   // 1. Глобальная защита от флуда и DDoS (Anti-Flood)
   bot.use(async (ctx, next) => {
@@ -1649,7 +1695,7 @@ function main() {
       );
     }
 
-    if (key === ADMIN_KEY) {
+    if (ADMIN_KEY && key === ADMIN_KEY) {
       verifiedAdminIds.add(userId);
       saveVerifiedAdmins();
       botLogger.audit("AUTH_SUCCESS", `User ${userId} (@${username}) successfully authenticated as admin`);
@@ -1714,11 +1760,7 @@ function main() {
     const userIsAdmin = isAdmin(userId);
 
     // Обычные пользователи получают безопасную агрегированную сводку без личных данных
-    const statsPath = userIsAdmin
-      ? `/api/users/stats?adminKey=${encodeURIComponent(ADMIN_KEY)}`
-      : "/api/users/stats";
-
-    const stats = await api<StatsResponse>(statsPath);
+    const stats = await api<StatsResponse>("/api/users/stats", 30_000, userIsAdmin);
 
     if (!stats || !stats.bot) {
       const total = userProfiles.size;
@@ -1933,7 +1975,7 @@ function main() {
     const res = await menuText(date);
     await ctx.reply(res.text, {
       parse_mode: "HTML",
-      disable_web_page_preview: true,
+      link_preview_options: { is_disabled: true },
       reply_markup: res.keyboard,
     });
   });
@@ -2008,7 +2050,7 @@ function main() {
     const arg = ctx.match?.trim() || savedClass;
     const classFilter = arg && /^\d{1,2}-\d{1,2}$/.test(arg) ? arg : undefined;
     await ctx.replyWithChatAction("typing");
-    await ctx.reply(await eventsText(classFilter), { parse_mode: "HTML", disable_web_page_preview: true });
+    await ctx.reply(await eventsText(classFilter), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   });
 
   bot.command("weather", async (ctx) => {
@@ -2017,7 +2059,7 @@ function main() {
 
   bot.command("news", async (ctx) => {
     await ctx.replyWithChatAction("typing");
-    await ctx.reply(await newsText(), { parse_mode: "HTML", disable_web_page_preview: true });
+    await ctx.reply(await newsText(), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   });
 
   bot.command("duty", async (ctx) => {
@@ -2134,8 +2176,9 @@ function main() {
     await ctx.answerCallbackQuery().catch(() => {});
 
     const forceFull = modeArg === "full";
-    const wd = dayArg === "today" ? nowNsk().getUTCDay() : Number(dayArg);
-    const res = await scheduleText(group, wd === 0 ? 1 : wd, false, userId, forceFull);
+    const wd = scheduleButtonDay(dayArg);
+    if (wd === null) return;
+    const res = await scheduleText(group, wd, false, userId, forceFull);
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     } catch (e: any) {
@@ -2149,6 +2192,10 @@ function main() {
   bot.callbackQuery(/^subgroup:menu:(.+)$/, async (ctx) => {
     const className = ctx.match[1];
     const userId = ctx.from?.id;
+    if (!isSavedClass(userId, className, userClassMap)) {
+      await ctx.answerCallbackQuery({ text: "Это меню прежнего класса. Открой /subgroup заново.", show_alert: true }).catch(() => {});
+      return;
+    }
     await ctx.answerCallbackQuery().catch(() => {});
     if (!userId) return;
     const res = await getSubgroupMenu(userId, className);
@@ -2166,6 +2213,10 @@ function main() {
     const choice = ctx.match[1];
     const className = ctx.match[2];
     const userId = ctx.from?.id;
+    if (!isSavedClass(userId, className, userClassMap)) {
+      await ctx.answerCallbackQuery({ text: "Это меню прежнего класса. Открой /subgroup заново.", show_alert: true }).catch(() => {});
+      return;
+    }
     if (!userId) return;
 
     if (choice === "all") {
@@ -2192,6 +2243,10 @@ function main() {
   bot.callbackQuery(/^subgroup:eng:menu:(.+)$/, async (ctx) => {
     const className = ctx.match[1];
     const userId = ctx.from?.id;
+    if (!isSavedClass(userId, className, userClassMap)) {
+      await ctx.answerCallbackQuery({ text: "Это меню прежнего класса. Открой /subgroup заново.", show_alert: true }).catch(() => {});
+      return;
+    }
     await ctx.answerCallbackQuery().catch(() => {});
     if (!userId) return;
     const res = await getEnglishMenu(userId, className);
@@ -2209,15 +2264,20 @@ function main() {
     const idx = Number(ctx.match[1]);
     const className = ctx.match[2];
     const userId = ctx.from?.id;
+    if (!isSavedClass(userId, className, userClassMap)) {
+      await ctx.answerCallbackQuery({ text: "Это меню прежнего класса. Открой /subgroup заново.", show_alert: true }).catch(() => {});
+      return;
+    }
     if (!userId) return;
 
+    await ctx.answerCallbackQuery().catch(() => {});
     const opts = await getEnglishGroupsForClass(className);
+    if (!isSavedClass(userId, className, userClassMap)) return;
     const selected = opts[idx];
     if (selected) {
       userEnglishMap.set(userId, selected.id);
       saveUsersToDisk();
       syncUserToDb(userId, `subgroup:eng:${selected.id}`);
-      await ctx.answerCallbackQuery(`Английский: ${selected.label} сохранён! ✅`).catch(() => {});
     }
     const res = await getEnglishMenu(userId, className);
     try {
@@ -2233,6 +2293,10 @@ function main() {
   bot.callbackQuery(/^subgroup:eng:all:(.+)$/, async (ctx) => {
     const className = ctx.match[1];
     const userId = ctx.from?.id;
+    if (!isSavedClass(userId, className, userClassMap)) {
+      await ctx.answerCallbackQuery({ text: "Это меню прежнего класса. Открой /subgroup заново.", show_alert: true }).catch(() => {});
+      return;
+    }
     if (!userId) return;
 
     userEnglishMap.delete(userId);
@@ -2260,7 +2324,7 @@ function main() {
     }
     const res = await menuText(date);
     try {
-      await ctx.editMessageText(res.text, { parse_mode: "HTML", disable_web_page_preview: true, reply_markup: res.keyboard });
+      await ctx.editMessageText(res.text, { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: res.keyboard });
     } catch (e: any) {
       if (!e?.message?.includes("message is not modified")) {
         botLogger.error("MENU_CB", "Failed to edit menu message", e);
@@ -2277,7 +2341,7 @@ function main() {
     if (text === "🍽 Меню") {
       await ctx.replyWithChatAction("typing");
       const res = await menuText();
-      return ctx.reply(res.text, { parse_mode: "HTML", disable_web_page_preview: true, reply_markup: res.keyboard });
+      return ctx.reply(res.text, { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: res.keyboard });
     }
 
     if (text === "📅 Расписание") {
@@ -2315,7 +2379,7 @@ function main() {
 
     if (text === "📌 События" || text === "📌 Мероприятия") {
       await ctx.replyWithChatAction("typing");
-      return ctx.reply(await eventsText(savedClass), { parse_mode: "HTML", disable_web_page_preview: true });
+      return ctx.reply(await eventsText(savedClass), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     }
 
     if (text === "🌤 Погода") {
@@ -2354,15 +2418,18 @@ function main() {
           { command: "stats", description: "📊 Статистика школы" },
           { command: "help", description: "❓ Справка по командам" },
         ]).catch(() => {});
-        bot.start();
-        botLogger.info("STARTUP", `Telegram бот запущен (long polling), API: ${API}, профилей в памяти: ${userProfiles.size}`);
-        console.log(`[tg-bot] Бот запущен (long polling), API портала: ${API}`);
-        // Фоновая синхронизация профилей с базой данных при старте
-        backfillUsersToDb().catch(() => {});
+        return bot.start({
+          onStart: () => {
+            pollingReady = true;
+            botLogger.info("STARTUP", `Telegram long polling ready; API: ${API}`);
+            void backfillUsersToDb();
+          },
+        });
       })
       .catch((err) => {
         botLogger.error("STARTUP", `Не удалось запустить бота: ${err?.message ?? err}`);
         console.error("[tg-bot] Не удалось запустить бота:", err?.message ?? err);
+        void shutdown(1);
       });
   } else {
     botLogger.warn("STARTUP", "TELEGRAM_BOT_TOKEN не задан — работаем в спящем режиме");
@@ -2373,19 +2440,26 @@ function main() {
 /* ------------------------ Health-сервер ----------------------------- */
 
 if (import.meta.main) {
+  if (process.env.NODE_ENV === "production" && (!TOKEN || !ADMIN_KEY)) {
+    console.error("[tg-bot] Production requires TELEGRAM_BOT_TOKEN and ADMIN_KEY");
+    process.exit(1);
+  }
+  process.on("SIGTERM", () => { void shutdown(); });
+  process.on("SIGINT", () => { void shutdown(); });
   botLogger.info("SERVICE", `Инициализация микросервиса tg-bot на порту ${PORT}`);
-  Bun.serve({
+  const healthServer = Bun.serve({
+    hostname: HEALTH_HOST,
     port: PORT,
     fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/health") {
         botLogger.debug("HEALTH", `Health check ping от ${req.headers.get("user-agent") || "unknown"}`);
         return Response.json({
-          ok: true,
+          ok: pollingReady,
           service: "sunc-info-tg-bot",
           port: PORT,
           api: API,
-          bot: TOKEN ? "running" : "sleeping (no TELEGRAM_BOT_TOKEN)",
+          bot: pollingReady ? "running" : stopping ? "stopping" : TOKEN ? "starting" : "sleeping",
           time: new Date().toISOString(),
           totalUsersCount: userProfiles.size,
           savedClassesCount: userClassMap.size,
@@ -2400,12 +2474,13 @@ if (import.meta.main) {
             "search_teacher_classroom",
             "users_and_classes_stats",
           ],
-        });
+        }, { status: pollingReady ? 200 : 503 });
       }
       return new Response("Not found", { status: 404 });
     },
   });
 
+  stopHealth = () => { healthServer.stop(true); };
   botLogger.info("SERVICE", `Health-сервер запущен: http://localhost:${PORT}/health`);
   console.log(`[tg-bot] Health-сервер: http://localhost:${PORT}/health`);
   main();

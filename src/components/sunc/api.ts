@@ -18,8 +18,8 @@ import type {
   WeatherResponse,
 } from "./types";
 
-async function api<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { Accept: "application/json" } });
+async function api<T>(path: string, adminKey?: string): Promise<T> {
+  const response = await fetch(path, { headers: { Accept: "application/json", ...(adminKey ? { "X-Admin-Key": adminKey } : {}) } });
   const data = (await response.json().catch(() => ({}))) as T & { ok?: boolean; error?: string };
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || `Ошибка запроса (${response.status})`);
@@ -203,7 +203,7 @@ export function useUsersStats(adminKey?: string) {
     queryKey: ["usersStats", adminKey ?? ""],
     queryFn: () =>
       api<UsersStatsData>(
-        `/api/users/stats${adminKey ? `?adminKey=${encodeURIComponent(adminKey)}` : ""}`
+        "/api/users/stats", adminKey
       ),
     staleTime: 30 * 1000,
   });
@@ -223,10 +223,9 @@ export function useAdminLogs(adminKey?: string, file = "bot", level = "ALL") {
     queryKey: ["adminLogs", adminKey ?? "", file, level],
     queryFn: () => {
       const p = new URLSearchParams();
-      if (adminKey) p.set("adminKey", adminKey);
       p.set("file", file);
       if (level && level !== "ALL") p.set("level", level);
-      return api<AdminLogsData>(`/api/admin/logs?${p.toString()}`);
+      return api<AdminLogsData>(`/api/admin/logs?${p.toString()}`, adminKey);
     },
     enabled: Boolean(adminKey),
     refetchInterval: 6000, // автообновление каждые 6 сек при открытой консоли

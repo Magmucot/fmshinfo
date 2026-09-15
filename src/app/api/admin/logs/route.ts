@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRecentLogs } from "@/lib/server/logger";
-import { ADMIN_KEY } from "@/lib/server/sources";
+import { isAdminRequest } from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
-    const adminKey = request.headers.get("x-admin-key") ?? request.nextUrl.searchParams.get("adminKey");
-    if (adminKey !== ADMIN_KEY) {
+    if (!isAdminRequest(request)) {
       return NextResponse.json(
         { ok: false, error: "Доступ запрещён: неверный ключ администратора" },
         { status: 403 }

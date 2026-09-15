@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ADMIN_KEY } from "@/lib/server/sources";
+import { isAdminRequest } from "@/lib/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   try {
-    const adminKey = request.headers.get("x-admin-key") ?? request.nextUrl.searchParams.get("adminKey");
-    const isAdmin = adminKey === ADMIN_KEY;
+    const isAdmin = isAdminRequest(request);
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);

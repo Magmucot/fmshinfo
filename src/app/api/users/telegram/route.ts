@@ -1,118 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
+import { telegramPayload } from "@/lib/server/payloads";
 import { db } from "@/lib/db";
-import { ADMIN_KEY } from "@/lib/server/sources";
+import { isAdminRequest } from "@/lib/server/auth";
 import { portalLogger } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
-
-interface TelegramUserPayload {
-  id: string | number;
-  username?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  className?: string | null;
-  subgroup?: number | null;
-  englishGroup?: string | null;
-  languageCode?: string | null;
-  isPremium?: boolean;
-  action?: string | null;
-}
 
 /**
  * POST /api/users/telegram
  * Сохраняет или обновляет профиль пользователя при любом обращении к боту.
  */
 export async function POST(request: NextRequest) {
+  if (!isAdminRequest(request)) {
+    return NextResponse.json({ ok: false, error: "Нет доступа" }, { status: 401 });
+  }
   try {
-    const body = (await request.json()) as TelegramUserPayload;
-    if (!body?.id) {
-      portalLogger.warn("TELEGRAM_API", "POST /api/users/telegram rejected: missing id");
-      return NextResponse.json({ ok: false, error: "Отсутствует обязательный параметр id" }, { status: 400 });
+    const parsed = telegramPayload.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Некорректные данные пользователя" }, { status: 400 });
     }
-
-    const id = String(body.id);
-    const username = body.username ? body.username.replace(/^@/, "").trim() : null;
-    const firstName = body.firstName ? body.firstName.trim() : null;
-    const lastName = body.lastName ? body.lastName.trim() : null;
-    const className = body.className ? body.className.trim() : null;
-    const languageCode = body.languageCode ? body.languageCode.trim() : null;
-    const isPremium = Boolean(body.isPremium);
-    const action = body.action ? body.action.trim() : null;
-    const subgroup = body.subgroup !== undefined
-      ? (typeof body.subgroup === "number" ? body.subgroup : (body.subgroup ? Number(body.subgroup) : null))
-      : undefined;
-    const englishGroup = body.englishGroup !== undefined
-      ? (body.englishGroup ? String(body.englishGroup).trim() : null)
-      : undefined;
-
-    const existing = await db.telegramUser.findUnique({
+    const { id, action, ...profile } = parsed.data;
+    const user = await db.telegramUser.upsert({
       where: { id },
+      create: { id, ...profile, lastAction: action ?? "/start", actionsCount: 1 },
+      update: { ...profile, lastAction: action, actionsCount: { increment: 1 }, lastActiveAt: new Date() },
     });
-
-    const now = new Date();
-
-    if (existing) {
-      const updated = await db.telegramUser.update({
-        where: { id },
-        data: {
-          username: username ?? existing.username,
-          firstName: firstName ?? existing.firstName,
-          lastName: lastName ?? existing.lastName,
-          className: className ?? existing.className,
-          subgroup: subgroup !== undefined ? subgroup : existing.subgroup,
-          englishGroup: englishGroup !== undefined ? englishGroup : existing.englishGroup,
-          languageCode: languageCode ?? existing.languageCode,
-          isPremium: isPremium ?? existing.isPremium,
-          actionsCount: { increment: 1 },
-          lastAction: action ?? existing.lastAction,
-          lastActiveAt: now,
-        },
-      });
-      portalLogger.audit(
-        "TG_USER_UPDATE",
-        `User ${id} (@${username ?? "no_user"}) action="${action ?? "—"}" class="${className ?? existing.className ?? "—"}" sub="${updated.subgroup ?? "none"}" eng="${updated.englishGroup ?? "none"}" totalActions=${updated.actionsCount}`
-      );
-      return NextResponse.json({ ok: true, user: updated, isNew: false });
-    } else {
-      const created = await db.telegramUser.create({
-        data: {
-          id,
-          username,
-          firstName,
-          lastName,
-          className,
-          subgroup: subgroup ?? null,
-          englishGroup: englishGroup ?? null,
-          languageCode,
-          isPremium,
-          actionsCount: 1,
-          lastAction: action ?? "/start",
-          firstSeenAt: now,
-          lastActiveAt: now,
-        },
-      });
-      portalLogger.audit(
-        "TG_USER_CREATE",
-        `New student registered: ${id} (@${username ?? "no_user"}) name="${firstName ?? ""} ${lastName ?? ""}" class="${className ?? "—"}" sub="${created.subgroup ?? "none"}" eng="${created.englishGroup ?? "none"}"`
-      );
-      return NextResponse.json({ ok: true, user: created, isNew: true });
-    }
+    portalLogger.audit("TG_USER_SYNC", `User ${id} synced; totalActions=${user.actionsCount}`);
+    return NextResponse.json({ ok: true, user, isNew: user.actionsCount === 1 });
   } catch (error) {
     portalLogger.error("TELEGRAM_API", "POST /api/users/telegram error", error);
-    return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Не удалось обработать запрос пользователей" }, { status: 500 });
   }
 }
 
 /**
  * GET /api/users/telegram
  * Возвращает пользователей бота.
- * При наличии X-Admin-Key или ?adminKey=sunc-admin выдаётся полный детализированный список.
+ * При наличии X-Admin-Key выдаётся полный детализированный список.
  * Без ключа — возвращается обезличенная сводка (общее количество, распределение по классам и подгруппам).
  */
 export async function GET(request: NextRequest) {
   try {
-    const adminKey = request.headers.get("x-admin-key") ?? request.nextUrl.searchParams.get("adminKey");
-    const isAdmin = adminKey === ADMIN_KEY;
+    const isAdmin = isAdminRequest(request);
 
     const searchParams = request.nextUrl.searchParams;
     const classFilter = searchParams.get("class");
@@ -228,6 +157,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("[api/users/telegram] GET Ошибка:", error);
-    return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: "Не удалось обработать запрос пользователей" }, { status: 500 });
   }
 }

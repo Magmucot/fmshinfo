@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ADMIN_KEY } from "@/lib/server/sources";
+import { isAdminRequest } from "@/lib/server/auth";
 import { ensureSeedData } from "@/lib/server/seed";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +22,7 @@ export async function GET(request: NextRequest) {
 
 /** POST /api/counselors — добавить/обновить ночного вожатого (X-Admin-Key) */
 export async function POST(request: NextRequest) {
-  const adminKey = request.headers.get("x-admin-key");
-  if (adminKey !== ADMIN_KEY) {
+  if (!isAdminRequest(request)) {
     return NextResponse.json({ ok: false, error: "Неверный X-Admin-Key" }, { status: 401 });
   }
 
@@ -72,8 +71,7 @@ export async function POST(request: NextRequest) {
 
 /** DELETE /api/counselors?id=… — удалить запись (X-Admin-Key) */
 export async function DELETE(request: NextRequest) {
-  const adminKey = request.headers.get("x-admin-key");
-  if (adminKey !== ADMIN_KEY) {
+  if (!isAdminRequest(request)) {
     return NextResponse.json({ ok: false, error: "Неверный X-Admin-Key" }, { status: 401 });
   }
   const id = Number(request.nextUrl.searchParams.get("id"));

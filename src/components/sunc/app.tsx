@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard, CalendarDays, Utensils, CalendarClock, BrushCleaning, MoonStar, CloudSun, Newspaper, Info, Sun, Moon, Users,
 } from "lucide-react";
+import { useSchoolClock } from "./useSchoolClock";
 import { useWeather } from "./api";
 import { nowNsk, fmtRu, WEEKDAYS_SHORT } from "./types";
 import { InstallAppButton } from "./install-banner";
@@ -87,31 +88,39 @@ export default function SuncApp() {
   /** Подрежим «Столовой»: Меню ↔ Аналитика (аналитика перенесена внутрь раздела) */
   const [canteenView, setCanteenView] = useState<CanteenView>("menu");
   const weather = useWeather();
-  const now = nowNsk();
-  const todayLabel = `${WEEKDAYS_SHORT[now.getUTCDay()]}, ${fmtRu(now)}`;
+  const now = useSchoolClock();
+  const todayLabel = now ? `${WEEKDAYS_SHORT[now.getUTCDay()]}, ${fmtRu(now)}` : "дата по Новосибирску";
 
   const navigate = useCallback((next: string, opts?: { canteenView?: CanteenView }) => {
-    // Глубокая ссылка прежней вкладки «Аналитика» → раздел «Столовая», режим аналитики
     const target = next === "analytics" ? "canteen" : next;
-    if ((TAB_IDS as readonly string[]).includes(target)) {
-      setTab(target as TabId);
-      if (opts?.canteenView || next === "analytics") {
-        setCanteenView(opts?.canteenView ?? "analytics");
-      }
-    }
+    if (!(TAB_IDS as readonly string[]).includes(target)) return;
+    const view = opts?.canteenView ?? (next === "analytics" ? "analytics" : "menu");
+    setTab(target as TabId);
+    setCanteenView(view);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", target);
+    if (target === "canteen" && view !== "menu") url.searchParams.set("view", view);
+    else url.searchParams.delete("view");
+    if (url.href !== window.location.href) window.history.pushState(null, "", url);
   }, []);
 
-  // Глубокая ссылка ?tab=… (PWA-шорткаты / «Поделиться»).
-  // Применяется после монтирования (вне синхронного тела эффекта),
-  // чтобы не было рассинхрона гидратации с серверным HTML.
+  // Restore the active section on reload and browser Back/Forward.
   useEffect(() => {
     const applyDeepLink = () => {
-      const t = new URLSearchParams(window.location.search).get("tab");
-      navigate(t ?? "dashboard");
+      const params = new URLSearchParams(window.location.search);
+      const requested = params.get("tab");
+      const target = requested === "analytics" ? "canteen" : requested;
+      const view = requested === "analytics" ? "analytics" : params.get("view");
+      setTab((TAB_IDS as readonly string[]).includes(target ?? "") ? target as TabId : "dashboard");
+      setCanteenView(view === "schedule" || view === "analytics" ? view : "menu");
     };
     const timer = window.setTimeout(applyDeepLink, 0);
-    return () => window.clearTimeout(timer);
-  }, [navigate]);
+    window.addEventListener("popstate", applyDeepLink);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("popstate", applyDeepLink);
+    };
+  }, []);
 
   // Горячие клавиши: Alt+1…9 — вкладки 1–9
   useEffect(() => {
@@ -122,11 +131,11 @@ export default function SuncApp() {
       if (!/^[1-9]$/.test(e.key)) return;
       e.preventDefault();
       const idx = Number(e.key) - 1;
-      if (idx < TABS.length) setTab(TABS[idx].id);
+      if (idx < TABS.length) navigate(TABS[idx].id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [navigate]);
 
   // Анонимный учет веб-посетителей и активности
   useEffect(() => {
@@ -198,12 +207,9 @@ export default function SuncApp() {
             {TABS.map(({ id, label, icon: Icon }, i) => (
               <button
                 key={id}
-                onClick={() => {
-                  setTab(id);
-                  if (id === "canteen") setCanteenView("menu");
-                }}
+                onClick={() => navigate(id)}
                 aria-current={tab === id ? "page" : undefined}
-                title={`${label} (Alt+${i + 1})`}
+                title={i < 9 ? `${label} (Alt+${i + 1})` : label}
                 className={`flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[12px] font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring sm:px-3.5 sm:text-xs ${
                   tab === id
                     ? "bg-primary text-primary-foreground shadow-xs"
@@ -231,7 +237,7 @@ export default function SuncApp() {
             {tab === "dashboard" && <DashboardSection onNavigate={navigate} />}
             {tab === "schedule" && <ScheduleSection />}
             {tab === "canteen" && (
-              <CanteenSection view={canteenView} onViewChange={setCanteenView} />
+              <CanteenSection view={canteenView} onViewChange={(view) => navigate("canteen", { canteenView: view })} />
             )}
             {tab === "events" && <EventsSection />}
             {tab === "duty" && <DutySection />}

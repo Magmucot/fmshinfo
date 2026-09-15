@@ -259,7 +259,7 @@ function organizeDayIntoPairs(lessons: ScheduleLesson[]): { pairs: PairBlockData
     };
   });
 
-  const allMainSlots = PAIRS_DEF.flatMap((p) => [p.slot1.begin, p.slot2.begin]);
+  const allMainSlots: string[] = PAIRS_DEF.flatMap((p) => [p.slot1.begin, p.slot2.begin]);
   const extras = lessons.filter((l) => !allMainSlots.includes(l.begin));
 
   return { pairs, extras };

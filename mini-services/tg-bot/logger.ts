@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSy
 import { join } from "path";
 
 // Логи пишутся в центральную папку проекта /logs/bot.log
-const LOGS_DIR = join(__dirname, "../../logs");
+const LOGS_DIR = process.env.BOT_LOG_DIR ?? join(__dirname, "../../logs");
 const BOT_LOG_FILE = join(LOGS_DIR, "bot.log");
 const AUDIT_LOG_FILE = join(LOGS_DIR, "audit.log");
 const MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024; // 10 МБ

@@ -4,6 +4,7 @@
 
 type InstallState = "unavailable" | "available" | "installed";
 
+let initialized = false;
 let deferredPrompt: BeforeInstallPromptEvent | null = null;
 let state: InstallState = "unavailable";
 const listeners = new Set<() => void>();
@@ -19,8 +20,8 @@ function emit() {
 
 /** Вызывается один раз при монтировании приложения */
 export function initPwaInstall() {
-  if (typeof window === "undefined" || initPwaInstall._done) return;
-  (initPwaInstall as unknown as { _done: boolean })._done = true;
+  if (typeof window === "undefined" || initialized) return;
+  initialized = true;
 
   const mq = window.matchMedia("(display-mode: standalone)");
   const isStandalone = mq.matches || (window.navigator as unknown as { standalone?: boolean }).standalone === true;
