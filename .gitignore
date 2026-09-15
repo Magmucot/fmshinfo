@@ -16,9 +16,21 @@ node_modules
 # next.js
 /.next/
 /out/
+/.turbo/
 
 # production
 /build
+/dist/
+
+# bun
+/.bun/
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
 
 # misc
 .DS_Store
@@ -30,6 +42,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# logs
+/logs/
+*.log
+
 # env files (can opt-in for committing if needed)
 .env*
 
@@ -40,16 +56,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-local-*
-.claude
-.z-ai-config
-*.log
-dev.log
-dev.out.log
-test
-prompt
 
-server.log
+# local / scratch
+/local-*
+/test
+/prompt
+
+# ai tools and agents
+/.claude
+/.z-ai-config
+/.agents/
+/.codex/
+
 # Skills directory
 /skills/
-/logs/
