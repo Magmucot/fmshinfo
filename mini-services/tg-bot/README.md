@@ -91,6 +91,6 @@ Telegram ←→ grammY long polling
 
 ## Production на сервере
 
-Готовый запуск через systemd: [инструкция](../../deploy/systemd/README.md), [unit](../../deploy/systemd/sunc-tg-bot.service), [пример конфигурации](../../deploy/systemd/sunc-tg-bot.env.example).
+Готовый запуск через systemd: [инструкция](../../deploy/systemd/README.md). Для клона в домашнем каталоге используйте [user unit](../../deploy/systemd/sunc-tg-bot.user.service) и [его конфигурацию](../../deploy/systemd/sunc-tg-bot.user.env.example); для `/opt` — системный [unit](../../deploy/systemd/sunc-tg-bot.service).
 
 Скрипт `run-production.sh` запускает Bun без hot reload и требует `TELEGRAM_BOT_TOKEN`, `ADMIN_KEY`, `PORTAL_API`. Профили и логи хранятся вне кода; SIGTERM сохраняет профили, ошибки старта завершают процесс для автоперезапуска.

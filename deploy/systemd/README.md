@@ -70,6 +70,42 @@ sudo systemctl start sunc-tg-bot
 
 Резервируйте `/var/lib/sunc-tg-bot` отдельно от кода. Не запускайте параллельно старый supervisor/`.zscripts/mini-services-start.sh` для этого же токена.
 
+## Вариант для клона в `/home/mag/fmshinfo`
+
+Если проект оставлен в домашнем каталоге пользователя `mag`, используйте user-level службу. Она запускается от `mag`, поэтому не требует отдельного `sunc-bot` и имеет доступ к `/home/mag/fmshinfo`:
+
+```bash
+cd /home/mag/fmshinfo
+mkdir -p "$HOME/.config/systemd/user" "$HOME/.config" "$HOME/.local/share/sunc-tg-bot" "$HOME/.local/state/sunc-tg-bot"
+cp deploy/systemd/sunc-tg-bot.user.service "$HOME/.config/systemd/user/sunc-tg-bot.service"
+cp deploy/systemd/sunc-tg-bot.user.env.example "$HOME/.config/sunc-tg-bot.env"
+chmod 600 "$HOME/.config/sunc-tg-bot.env"
+command -v bun
+nano "$HOME/.config/sunc-tg-bot.env"
+```
+
+В env-файле укажите настоящий токен, тот же `ADMIN_KEY`, что задан у портала, и проверьте `BUN_BIN`: команда `command -v bun` должна совпадать с этим путём. Если портал запущен на другом сервере, замените `PORTAL_API` на его URL.
+
+Перед запуском установите зависимости и проверьте, что API портала уже работает:
+
+```bash
+cd /home/mag/fmshinfo/mini-services/tg-bot
+bun install --frozen-lockfile --production
+curl --fail http://127.0.0.1:3000/api/bells >/dev/null
+systemctl --user daemon-reload
+systemctl --user enable --now sunc-tg-bot
+systemctl --user status sunc-tg-bot --no-pager
+curl --fail http://127.0.0.1:3003/health
+```
+
+Чтобы служба продолжала работать после выхода из SSH и после перезагрузки, один раз выполните от `mag`:
+
+```bash
+sudo loginctl enable-linger mag
+```
+
+Диагностика: `journalctl --user -u sunc-tg-bot -n 100 -e --no-pager`; поток логов — `journalctl --user -u sunc-tg-bot -f`; перезапуск после обновления — `systemctl --user restart sunc-tg-bot`. Остановить — `systemctl --user disable --now sunc-tg-bot`. Не запускайте одновременно старый `bun index.ts`, `.zscripts/mini-services-start.sh` и systemd для одного токена: Telegram допускает только один polling-процесс.
+
 ## Проверки перед переносом
 
 `npm run typecheck` проверяет TypeScript бота. `bash tests/bot-production.sh` проверяет обязательные переменные, каталог запуска, параметры runtime, передачу кода завершения и синтаксис unit через `systemd-analyze verify`. Проверка использует подставной Bun и не обращается к Telegram. Реальную службу нужно проверить на целевом сервере с его токеном и адресом API.
