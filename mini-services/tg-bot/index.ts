@@ -15,6 +15,7 @@
 
 import { scheduleButtonDay } from "./schedule-day";
 import { changeSavedClass, isSavedClass } from "./preferences";
+import { FoodRatingBook, FoodRatingTarget, formatFoodRating } from "./food-ratings";
 import { Bot, Context, InlineKeyboard, Keyboard } from "grammy";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
 import { join } from "path";
@@ -53,12 +54,34 @@ const USERS_FILE = join(DATA_DIR, "users.json");
 const USER_CLASSES_FILE = join(DATA_DIR, "user_classes.json");
 const USER_SUBGROUPS_FILE = join(DATA_DIR, "user_subgroups.json");
 const ADMINS_FILE = join(DATA_DIR, "admins.json");
+const FOOD_RATINGS_FILE = join(DATA_DIR, "food_ratings.json");
 
 // Atomic replacement keeps an interrupted write from truncating a JSON file.
 function writeJsonAtomically(path: string, content: string, encoding: "utf-8") {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, content, { encoding, mode: 0o600 });
   renameSync(temporary, path);
+}
+
+function loadFoodRatings(): FoodRatingBook {
+  try {
+    if (existsSync(FOOD_RATINGS_FILE)) {
+      return new FoodRatingBook(JSON.parse(readFileSync(FOOD_RATINGS_FILE, "utf-8")));
+    }
+  } catch (error) {
+    console.error("[tg-bot] Ошибка загрузки food_ratings.json:", error);
+  }
+  return new FoodRatingBook();
+}
+
+const foodRatings = loadFoodRatings();
+
+function saveFoodRatingsToDisk() {
+  try {
+    writeJsonAtomically(FOOD_RATINGS_FILE, JSON.stringify(foodRatings.toJSON(), null, 2), "utf-8");
+  } catch (error) {
+    console.error("[tg-bot] Ошибка сохранения food_ratings.json:", error);
+  }
 }
 
 let activeBot: Bot | undefined;
@@ -74,11 +97,13 @@ async function shutdown(exitCode = 0) {
   deadline.unref();
   if (saveUsersTimeout) clearTimeout(saveUsersTimeout);
   saveUsersToDisk();
+  saveFoodRatingsToDisk();
   try {
     if (activeBot?.isRunning()) await activeBot.stop();
   } finally {
     // Persist changes from an update that was still being handled at SIGTERM.
     saveUsersToDisk();
+    saveFoodRatingsToDisk();
     stopHealth?.();
     process.exit(exitCode);
   }
@@ -334,12 +359,10 @@ function debouncedSaveUsers() {
   }, 2500);
 }
 
-// Защита от избыточных вызовов к Next.js API
-const lastApiSyncMap = new Map<number, number>();
-
 /**
  * Отслеживание активности пользователя (ID, юзернейм «юза», имя, класс, действие)
- * и асинхронная синхронизация с базой данных портала.
+ * хранится только в данных бота. Веб-портал не участвует в пользовательском
+ * потоке, поэтому нет лишней записи в SQLite на каждое нажатие.
  */
 function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
   const from = ctx.from;
@@ -381,92 +404,6 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
 
   // Логирование действия в audit.log и bot.log
   botLogger.command(id, username, action, cls);
-
-  // Синхронизация с Next.js и DB не чаще 1 раза в 30 секунд на пользователя,
-  // либо немедленно при явной смене класса или подгруппы
-  const nowTime = Date.now();
-  const lastSync = lastApiSyncMap.get(id) ?? 0;
-  if (newClass || nowTime - lastSync > 30_000) {
-    lastApiSyncMap.set(id, nowTime);
-    fetch(`${API}/api/users/telegram`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Admin-Key": ADMIN_KEY },
-      signal: AbortSignal.timeout(15_000),
-      body: JSON.stringify({
-        id: String(id),
-        username,
-        firstName,
-        lastName,
-        className: cls,
-        subgroup: updatedRecord.subgroup,
-        englishGroup: updatedRecord.englishGroup,
-        languageCode,
-        isPremium,
-        action,
-      }),
-    }).then((res) => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    }).catch((err) => {
-      lastApiSyncMap.delete(id);
-      botLogger.debug("API_SYNC", `Sync failed for user ${id}: ${(err as Error).message}`);
-    });
-  }
-}
-
-/** Прямая немедленная синхронизация пользователя с базой данных (Prisma SQLite) через API */
-export async function syncUserToDb(userId: number, actionName?: string): Promise<boolean> {
-  const profile = userProfiles.get(userId);
-  const cls = profile?.className ?? userClassMap.get(userId) ?? null;
-  const sub = userSubgroupMap.get(userId) ?? null;
-  const eng = userEnglishMap.get(userId) ?? null;
-
-  try {
-    lastApiSyncMap.set(userId, Date.now());
-    const res = await fetch(`${API}/api/users/telegram`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Admin-Key": ADMIN_KEY },
-      signal: AbortSignal.timeout(15_000),
-      body: JSON.stringify({
-        id: String(userId),
-        username: profile?.username ?? null,
-        firstName: profile?.firstName ?? null,
-        lastName: profile?.lastName ?? null,
-        className: cls,
-        subgroup: sub,
-        englishGroup: eng,
-        languageCode: profile?.languageCode ?? "ru",
-        isPremium: profile?.isPremium ?? false,
-        action: actionName ?? profile?.lastAction ?? "sync",
-      }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    if (res.ok) {
-      botLogger.debug("DB_SYNC", `User ${userId} synced to DB: class=${cls} sub=${sub} eng=${eng}`);
-      return true;
-    }
-  } catch (err: any) {
-    lastApiSyncMap.delete(userId);
-    botLogger.debug("DB_SYNC", `Sync to DB failed for user ${userId}: ${err?.message}`);
-  }
-  return false;
-}
-
-/** Первичная фоновая синхронизация всех пользователей бота с БД при старте */
-export async function backfillUsersToDb() {
-  try {
-    botLogger.info("DB_BACKFILL", `Синхронизация профилей с базой данных (${userProfiles.size} пользователей)...`);
-    let failed = 0;
-    for (const id of userProfiles.keys()) {
-      if (!(await syncUserToDb(id, "startup_backfill"))) failed += 1;
-    }
-    if (failed > 0) {
-      botLogger.warn("DB_BACKFILL", `Синхронизация завершена с ошибками: ${failed} из ${userProfiles.size} профилей не отправлены`);
-    } else {
-      botLogger.info("DB_BACKFILL", "Синхронизация профилей с БД успешно завершена");
-    }
-  } catch (e: any) {
-    botLogger.error("DB_BACKFILL", "Ошибка backfill в базу данных", e);
-  }
 }
 
 function saveUserClass(userId: number, className: string, ctx?: Context) {
@@ -475,7 +412,20 @@ function saveUserClass(userId: number, className: string, ctx?: Context) {
   botLogger.setclass(userId, ctx?.from?.username ?? null, oldClass, className);
 
   if (ctx) {
-    trackUserInteraction(ctx, "setclass", className);
+    // Middleware уже записал это нажатие. Обновляем класс в том же профиле,
+    // чтобы выбор класса не удваивал счётчик действий и запись на диск.
+    const existing = userProfiles.get(userId);
+    if (existing) {
+      userProfiles.set(userId, {
+        ...existing,
+        className,
+        subgroup: userSubgroupMap.get(userId) ?? null,
+        englishGroup: userEnglishMap.get(userId) ?? null,
+      });
+      debouncedSaveUsers();
+    } else {
+      trackUserInteraction(ctx, "setclass", className);
+    }
   } else {
     const existing = userProfiles.get(userId);
     const nowStr = new Date().toISOString();
@@ -628,49 +578,33 @@ interface CanteenScheduleResponse {
   footnote: string;
 }
 
-interface StatsResponse {
-  ok: boolean;
-  isAdmin: boolean;
-  bot: {
-    totalUsers: number;
-    activeToday: number;
-    activeWeek: number;
-    withClassCount: number;
-    byClass: Record<string, number>;
-    topClasses: Array<{ className: string; count: number }>;
-    byGrade: Record<string, number>;
-    recentUsers?: Array<{
-      id: string;
-      username: string | null;
-      firstName: string | null;
-      className: string | null;
-      actionsCount: number;
-      lastAction: string | null;
-      lastActiveAt: string;
-    }>;
-  };
-  web: {
-    totalVisitors: number;
-  };
-}
-
 /* ----------------------------- Утилиты ------------------------------ */
 
-// Кэш ответов API портала (защита от частых повторных запросов)
+// Кэш ответов API портала. Одновременные запросы к одному пути объединяются,
+// а размер кэша ограничен: поисковые запросы пользователей не могут занять всю память.
 const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
+const apiInFlight = new Map<string, Promise<unknown | null>>();
+const MAX_API_CACHE_ENTRIES = 128;
 
-async function api<T>(path: string, ttlMs = 30_000, privileged = false): Promise<T | null> {
+function putApiCache(path: string, data: unknown, ttlMs: number) {
   const now = Date.now();
-  const cached = apiCache.get(path);
-  if (!privileged && cached && cached.expiresAt > now) {
-    return cached.data as T;
+  for (const [key, entry] of apiCache) {
+    if (entry.expiresAt <= now) apiCache.delete(key);
   }
+  while (apiCache.size >= MAX_API_CACHE_ENTRIES) {
+    const oldest = apiCache.keys().next().value;
+    if (!oldest) break;
+    apiCache.delete(oldest);
+  }
+  apiCache.set(path, { data, expiresAt: now + ttlMs });
+}
 
+async function fetchPortalApi<T>(path: string, ttlMs: number): Promise<T | null> {
   const start = Date.now();
   try {
     const res = await fetch(`${API}${path}`, {
       signal: AbortSignal.timeout(60_000),
-      headers: { Accept: "application/json", ...(privileged ? { "X-Admin-Key": ADMIN_KEY } : {}) },
+      headers: { Accept: "application/json" },
     });
     const dur = Date.now() - start;
     if (!res.ok) {
@@ -679,15 +613,31 @@ async function api<T>(path: string, ttlMs = 30_000, privileged = false): Promise
     }
     botLogger.api(path, res.status, dur);
     const json = (await res.json()) as T;
-    // Кэшируем только публичные данные без ключей администратора
-    if (!privileged) {
-      apiCache.set(path, { data: json, expiresAt: now + ttlMs });
-    }
+    putApiCache(path, json, ttlMs);
     return json;
   } catch (err) {
     const dur = Date.now() - start;
     botLogger.error("API", `GET ${path} failed (${dur}ms)`, err);
     return null;
+  }
+}
+
+async function api<T>(path: string, ttlMs = 30_000): Promise<T | null> {
+  const now = Date.now();
+  const cached = apiCache.get(path);
+  if (cached && cached.expiresAt > now) {
+    return cached.data as T;
+  }
+
+  const running = apiInFlight.get(path);
+  if (running) return running as Promise<T | null>;
+
+  const request = fetchPortalApi<T>(path, ttlMs);
+  apiInFlight.set(path, request);
+  try {
+    return await request;
+  } finally {
+    apiInFlight.delete(path);
   }
 }
 
@@ -944,6 +894,48 @@ function cleanDishName(name: string): string {
     .trim();
 }
 
+function compactMenuDate(date: string): string | null {
+  const match = date.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  return match ? `${match[1]}${match[2]}${match[3]}` : null;
+}
+
+function expandMenuDate(value: string): string | null {
+  const match = value.match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const checked = new Date(Date.UTC(year, month - 1, day));
+  if (checked.getUTCFullYear() !== year || checked.getUTCMonth() !== month - 1 || checked.getUTCDate() !== day) return null;
+  return `${match[1]}.${match[2]}.${match[3]}`;
+}
+
+function getMenuDishRatingTarget(
+  data: MenuResponse,
+  mealIndex: number,
+  dishIndex: number
+): FoodRatingTarget | null {
+  if (!Number.isInteger(mealIndex) || !Number.isInteger(dishIndex) || mealIndex < 0 || dishIndex < 0) return null;
+  const meal = data.meals[mealIndex];
+  const dish = meal?.dishes[dishIndex];
+  if (!meal || !dish) return null;
+  return { date: data.date, mealType: meal.type, dishName: cleanDishName(dish.name) };
+}
+
+async function getMenuForRating(dateToken: string): Promise<MenuResponse | null> {
+  const date = expandMenuDate(dateToken);
+  if (!date) return null;
+  const data = await api<MenuResponse>(`/api/menu?date=${encodeURIComponent(date)}`);
+  // API может вернуть ближайшее доступное меню; голосовать можно только за то,
+  // которое было показано в кнопке.
+  return data?.date === date ? data : null;
+}
+
+function ratingDishButtonLabel(mealType: string, dishName: string): string {
+  const label = `${mealType}: ${cleanDishName(dishName)}`;
+  return label.length > 58 ? `${label.slice(0, 57)}…` : label;
+}
+
 /** Меню столовой → лаконичный карточный вид с цитатами */
 export async function menuText(date?: string): Promise<{ text: string; keyboard?: InlineKeyboard }> {
   const data = await api<MenuResponse>(`/api/menu${date ? `?date=${encodeURIComponent(date)}` : ""}`);
@@ -952,13 +944,16 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
   const shortDate = data.date.replace(/\.20\d\d$/, "");
 
   const keyboard = new InlineKeyboard();
+  let hasNavigation = false;
   if (data.availableDates && data.availableDates.length > 1) {
     const idx = data.availableDates.indexOf(data.date);
     if (idx > 0) {
       const prev = data.availableDates[idx - 1];
       keyboard.text(`◀ ${prev.replace(/\.20\d\d$/, "")}`, `menu:${prev}`);
+      hasNavigation = true;
     }
     keyboard.text("🍱 График смен", "canteen:info");
+    hasNavigation = true;
     if (idx >= 0 && idx < data.availableDates.length - 1) {
       const next = data.availableDates[idx + 1];
       keyboard.text(`${next.replace(/\.20\d\d$/, "")} ▶`, `menu:${next}`);
@@ -974,11 +969,15 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
 
   const lines: string[] = [`🍽 <b>Меню на ${esc(shortDate)}</b>\n`];
 
-  for (const meal of data.meals) {
+  for (const [mealIndex, meal] of data.meals.entries()) {
     if (!meal.dishes || !meal.dishes.length) continue;
     const rawType = meal.type.trim();
     const mealTitle = rawType.charAt(0).toUpperCase() + rawType.slice(1);
-    const dishItems = meal.dishes.map((d) => `• ${esc(cleanDishName(d.name))}`).join("\n");
+    const dishItems = meal.dishes.map((dish, dishIndex) => {
+      const target = getMenuDishRatingTarget(data, mealIndex, dishIndex);
+      const rating = target ? formatFoodRating(foodRatings.summary(target)) : "";
+      return `• ${esc(cleanDishName(dish.name))}${rating ? `\n  <i>${rating}</i>` : ""}`;
+    }).join("\n");
     lines.push(`<blockquote><b>${esc(mealTitle)}:</b>\n${dishItems}</blockquote>\n`);
   }
 
@@ -994,6 +993,13 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
     }
     details.push("</blockquote>");
     lines.push(details.join("\n"));
+  }
+
+  const hasDishes = data.meals.some((m) => m.dishes && m.dishes.length > 0);
+  const dateToken = compactMenuDate(data.date);
+  if (dateToken && hasDishes) {
+    if (hasNavigation) keyboard.row();
+    keyboard.text("⭐ Оценить блюдо", `rate:menu:${dateToken}`);
   }
 
   return { text: lines.join("\n").trim(), keyboard };
@@ -1760,74 +1766,67 @@ function main() {
     );
   });
 
-  // Статистика пользователей и классов (ОЧИЩЕНА ОТ ЛИЧНОЙ ИНФОРМАЦИИ ДЛЯ ОБЫЧНЫХ ПОЛЬЗОВАТЕЛЕЙ)
+  // Статистика берётся из локального файла бота: веб-портал для неё не нужен.
   bot.command(["stats", "users"], async (ctx) => {
-    await ctx.replyWithChatAction("typing");
-    const userId = ctx.from?.id;
-    const userIsAdmin = isAdmin(userId);
+    const userIsAdmin = isAdmin(ctx.from?.id);
+    const now = Date.now();
+    const activeTodayAfter = now - 24 * 60 * 60 * 1000;
+    const activeWeekAfter = now - 7 * 24 * 60 * 60 * 1000;
+    const byClass: Record<string, number> = {};
+    const byGrade: Record<string, number> = { "8": 0, "9": 0, "10": 0, "11": 0 };
+    let withClass = 0;
+    let activeToday = 0;
+    let activeWeek = 0;
 
-    // Обычные пользователи получают безопасную агрегированную сводку без личных данных
-    const stats = await api<StatsResponse>("/api/users/stats", 30_000, userIsAdmin);
-
-    if (!stats || !stats.bot) {
-      const total = userProfiles.size;
-      const byClass: Record<string, number> = {};
-      for (const u of userProfiles.values()) {
-        if (u.className) byClass[u.className] = (byClass[u.className] ?? 0) + 1;
-      }
-      const lines = [
-        "📊 <b>Статистика пользователей «СУНЦ Инфо»</b>\n",
-        "<blockquote>",
-        `👥 Всего пользователей бота: <b>${total}</b>`,
-        "</blockquote>\n",
-        "🏫 <b>Классы:</b>",
-        ...Object.entries(byClass).map(([c, n]) => `• <b>${c}</b>: ${n} уч.`),
-      ];
-      return ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+    for (const profile of userProfiles.values()) {
+      const lastActive = Date.parse(profile.lastActiveAt);
+      if (Number.isFinite(lastActive) && lastActive >= activeTodayAfter) activeToday += 1;
+      if (Number.isFinite(lastActive) && lastActive >= activeWeekAfter) activeWeek += 1;
+      if (!profile.className) continue;
+      withClass += 1;
+      byClass[profile.className] = (byClass[profile.className] ?? 0) + 1;
+      const grade = profile.className.split("-")[0];
+      if (grade && grade in byGrade) byGrade[grade] += 1;
     }
 
-    const b = stats.bot;
+    const topClasses = Object.entries(byClass).sort(([, left], [, right]) => right - left);
     const lines = [
       "📊 <b>Статистика «СУНЦ Инфо»</b>\n",
       "<blockquote>",
-      `👥 <b>Всего пользователей:</b> <code>${b.totalUsers}</code>`,
-      `⚡ <b>Активных сегодня:</b> <code>${b.activeToday}</code>`,
-      `📅 <b>Активных за неделю:</b> <code>${b.activeWeek}</code>`,
-      `🏫 <b>С выбранным классом:</b> <code>${b.withClassCount}</code>`,
+      `👥 <b>Всего пользователей:</b> <code>${userProfiles.size}</code>`,
+      `⚡ <b>Активных сегодня:</b> <code>${activeToday}</code>`,
+      `📅 <b>Активных за неделю:</b> <code>${activeWeek}</code>`,
+      `🏫 <b>С выбранным классом:</b> <code>${withClass}</code>`,
       "</blockquote>\n",
       "🏆 <b>Топ классов в боте:</b>",
     ];
-
-    if (b.topClasses && b.topClasses.length > 0) {
-      b.topClasses.slice(0, 8).forEach((item, idx) => {
-        const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "•";
-        lines.push(`${medal} <b>${item.className}</b> — <code>${item.count}</code> уч.`);
+    if (topClasses.length) {
+      topClasses.slice(0, 8).forEach(([className, count], index) => {
+        const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "•";
+        lines.push(`${medal} <b>${esc(className)}</b> — <code>${count}</code> уч.`);
       });
     } else {
       lines.push("<i>Пока нет данных</i>");
     }
-
-    lines.push("\n<blockquote expandable>");
-    lines.push("🎓 <b>По параллелям:</b>");
-    lines.push(`• 11-е классы: <b>${b.byGrade["11"] ?? 0}</b>`);
-    lines.push(`• 10-е классы: <b>${b.byGrade["10"] ?? 0}</b>`);
-    lines.push(`• 9-е классы: <b>${b.byGrade["9"] ?? 0}</b>`);
-    lines.push(`• 8-е классы: <b>${b.byGrade["8"] ?? 0}</b>`);
+    lines.push("\n<blockquote expandable>", "🎓 <b>По параллелям:</b>");
+    for (const grade of ["11", "10", "9", "8"]) lines.push(`• ${grade}-е классы: <b>${byGrade[grade]}</b>`);
     lines.push("</blockquote>");
 
-    // ЛИЧНАЯ ИНФОРМАЦИЯ (ID, юзернеймы, действия) видна ИСКЛЮЧИТЕЛЬНО верифицированным администраторам!
-    if (userIsAdmin && b.recentUsers && b.recentUsers.length > 0) {
-      lines.push("\n<blockquote expandable>");
-      lines.push("🛡️ <b>Недавняя активность (для администратора):</b>");
-      for (const u of b.recentUsers.slice(0, 8)) {
-        const uLabel = u.username ? `@${esc(u.username)}` : (u.firstName ? esc(u.firstName) : `ID: ${u.id}`);
-        const cLabel = u.className ? ` [<b>${esc(u.className)}</b>]` : "";
-        const actLabel = u.lastAction ? ` · <i>${esc(u.lastAction)}</i>` : "";
-        lines.push(`• <code>${u.id}</code> ${uLabel}${cLabel}${actLabel}`);
+    if (userIsAdmin) {
+      const recent = [...userProfiles.values()]
+        .sort((left, right) => Date.parse(right.lastActiveAt) - Date.parse(left.lastActiveAt))
+        .slice(0, 8);
+      if (recent.length) {
+        lines.push("\n<blockquote expandable>", "🛡️ <b>Недавняя активность (для администратора):</b>");
+        for (const profile of recent) {
+          const label = profile.username ? `@${esc(profile.username)}` : (profile.firstName ? esc(profile.firstName) : `ID: ${profile.id}`);
+          const className = profile.className ? ` [<b>${esc(profile.className)}</b>]` : "";
+          const action = profile.lastAction ? ` · <i>${esc(profile.lastAction)}</i>` : "";
+          lines.push(`• <code>${profile.id}</code> ${label}${className}${action}`);
+        }
+        lines.push("</blockquote>");
       }
-      lines.push("</blockquote>");
     }
-
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
   });
 
@@ -2234,7 +2233,6 @@ function main() {
       await ctx.answerCallbackQuery(`Выбрана ${choice}-я подгруппа! ✅`).catch(() => {});
     }
     saveUsersToDisk();
-    syncUserToDb(userId, `subgroup:main:${choice}`);
 
     const res = await getSubgroupMenu(userId, className);
     try {
@@ -2284,7 +2282,6 @@ function main() {
     if (selected) {
       userEnglishMap.set(userId, selected.id);
       saveUsersToDisk();
-      syncUserToDb(userId, `subgroup:eng:${selected.id}`);
     }
     const res = await getEnglishMenu(userId, className);
     try {
@@ -2308,7 +2305,6 @@ function main() {
 
     userEnglishMap.delete(userId);
     saveUsersToDisk();
-    syncUserToDb(userId, "subgroup:eng:all");
     await ctx.answerCallbackQuery("Английский: показываются все группы ✅").catch(() => {});
 
     const res = await getEnglishMenu(userId, className);
@@ -2317,6 +2313,115 @@ function main() {
     } catch (e: any) {
       if (!e?.message?.includes("message is not modified")) {
         botLogger.error("SUBGROUP_ENG_ALL_CB", "Failed to edit message", e);
+      }
+    }
+  });
+
+  // Callback query: выбор блюда для оценки
+  bot.callbackQuery(/^rate:menu:(\d{8})$/, async (ctx) => {
+    const dateToken = ctx.match[1];
+    const data = await getMenuForRating(dateToken);
+    if (!data?.meals.length) {
+      return ctx.answerCallbackQuery({ text: "Меню изменилось или больше недоступно. Откройте /menu ещё раз.", show_alert: true }).catch(() => {});
+    }
+
+    const keyboard = new InlineKeyboard();
+    let choices = 0;
+    for (const [mealIndex, meal] of data.meals.entries()) {
+      if (!meal.dishes || !meal.dishes.length) continue;
+      for (const [dishIndex, dish] of meal.dishes.entries()) {
+        keyboard.text(
+          ratingDishButtonLabel(meal.type, dish.name),
+          `rate:pick:${dateToken}:${mealIndex}:${dishIndex}`
+        ).row();
+        choices += 1;
+      }
+    }
+    if (!choices) {
+      return ctx.answerCallbackQuery({ text: "В меню пока нет блюд для оценки.", show_alert: true }).catch(() => {});
+    }
+    await ctx.answerCallbackQuery().catch(() => {});
+    keyboard.text("◀ К меню", `menu:${data.date}`);
+    try {
+      await ctx.editMessageText(
+        `⭐ <b>Оценка блюд · ${esc(data.date.replace(/\.20\d\d$/, ""))}</b>\n\nВыберите блюдо — оценку можно изменить позднее.`,
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+    } catch (error: any) {
+      if (!error?.message?.includes("message is not modified")) {
+        botLogger.error("FOOD_RATING_MENU", "Failed to show dish picker", error);
+      }
+    }
+  });
+
+  // Callback query: выбор оценки от 1 до 5
+  bot.callbackQuery(/^rate:pick:(\d{8}):(\d+):(\d+)$/, async (ctx) => {
+    const [, dateToken, mealIndexRaw, dishIndexRaw] = ctx.match;
+    const data = await getMenuForRating(dateToken);
+    const target = data && getMenuDishRatingTarget(data, Number(mealIndexRaw), Number(dishIndexRaw));
+    if (!target) {
+      return ctx.answerCallbackQuery({ text: "Блюдо изменилось. Откройте /menu ещё раз.", show_alert: true }).catch(() => {});
+    }
+
+    await ctx.answerCallbackQuery().catch(() => {});
+    const keyboard = new InlineKeyboard()
+      .text("1 ⭐", `rate:vote:${dateToken}:${mealIndexRaw}:${dishIndexRaw}:1`)
+      .text("2 ⭐", `rate:vote:${dateToken}:${mealIndexRaw}:${dishIndexRaw}:2`)
+      .text("3 ⭐", `rate:vote:${dateToken}:${mealIndexRaw}:${dishIndexRaw}:3`)
+      .text("4 ⭐", `rate:vote:${dateToken}:${mealIndexRaw}:${dishIndexRaw}:4`)
+      .text("5 ⭐", `rate:vote:${dateToken}:${mealIndexRaw}:${dishIndexRaw}:5`).row()
+      .text("◀ Другие блюда", `rate:menu:${dateToken}`)
+      .text("🍽 К меню", `menu:${data.date}`);
+    const existing = formatFoodRating(foodRatings.summary(target));
+    try {
+      await ctx.editMessageText(
+        [
+          "⭐ <b>Поставьте оценку</b>",
+          `<blockquote><b>${esc(target.dishName)}</b>`,
+          `${esc(target.mealType)} · ${esc(target.date)}${existing ? `\nТекущий рейтинг: <b>${existing}</b>` : ""}</blockquote>`,
+        ].join("\n"),
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+    } catch (error: any) {
+      if (!error?.message?.includes("message is not modified")) {
+        botLogger.error("FOOD_RATING_PICK", "Failed to show score picker", error);
+      }
+    }
+  });
+
+  // Callback query: сохранение оценки пользователя
+  bot.callbackQuery(/^rate:vote:(\d{8}):(\d+):(\d+):([1-5])$/, async (ctx) => {
+    const [, dateToken, mealIndexRaw, dishIndexRaw, scoreRaw] = ctx.match;
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    const data = await getMenuForRating(dateToken);
+    const target = data && getMenuDishRatingTarget(data, Number(mealIndexRaw), Number(dishIndexRaw));
+    if (!target) {
+      return ctx.answerCallbackQuery({ text: "Блюдо изменилось. Откройте /menu ещё раз.", show_alert: true }).catch(() => {});
+    }
+
+    const score = Number(scoreRaw);
+    const summary = foodRatings.vote(target, userId, score);
+    saveFoodRatingsToDisk();
+    botLogger.audit("FOOD_RATING", `User ${userId} rated ${target.date} / ${target.mealType} / ${target.dishName}: ${score}`);
+    await ctx.answerCallbackQuery(`Оценка ${score}/5 сохранена`).catch(() => {});
+
+    const keyboard = new InlineKeyboard()
+      .text("⭐ Изменить оценку", `rate:pick:${dateToken}:${mealIndexRaw}:${dishIndexRaw}`).row()
+      .text("◀ Другие блюда", `rate:menu:${dateToken}`)
+      .text("🍽 К меню", `menu:${data.date}`);
+    try {
+      await ctx.editMessageText(
+        [
+          `✅ <b>Спасибо! Ваша оценка: ${score}/5</b>`,
+          `<blockquote><b>${esc(target.dishName)}</b>`,
+          `Общий рейтинг: <b>${formatFoodRating(summary)}</b></blockquote>`,
+        ].join("\n"),
+        { parse_mode: "HTML", reply_markup: keyboard }
+      );
+    } catch (error: any) {
+      if (!error?.message?.includes("message is not modified")) {
+        botLogger.error("FOOD_RATING_VOTE", "Failed to confirm score", error);
       }
     }
   });
@@ -2429,7 +2534,6 @@ function main() {
           onStart: () => {
             pollingReady = true;
             botLogger.info("STARTUP", `Telegram long polling ready; API: ${API}`);
-            void backfillUsersToDb();
           },
         });
       })
@@ -2473,6 +2577,7 @@ if (import.meta.main) {
           features: [
             "interactive_class_picker_on_start",
             "persistent_user_classes_and_profiles",
+            "persistent_food_ratings",
             "user_tracking_id_username_matching",
             "pairs_grouped_schedule (3 pairs)",
             "accurate_subgroup_and_window_detection",

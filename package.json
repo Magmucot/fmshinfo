@@ -14,7 +14,7 @@
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
     "test:auth": "node --experimental-strip-types --test tests/auth.test.mjs",
-    "test:unit": "node --experimental-strip-types --test tests/auth.test.mjs tests/payloads.test.mjs tests/bot-preferences.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/auth.test.mjs tests/payloads.test.mjs tests/bot-preferences.test.mjs tests/food-ratings.test.mjs",
     "test:api": "node tests/profile-api.mjs"
   },
   "dependencies": {

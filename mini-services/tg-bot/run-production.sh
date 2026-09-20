@@ -7,9 +7,11 @@ set -euo pipefail
 export NODE_ENV=production
 export BOT_HOST="${BOT_HOST:-127.0.0.1}"
 export BOT_PORT="${BOT_PORT:-3003}"
-export BOT_DATA_DIR="${BOT_DATA_DIR:-/var/lib/sunc-tg-bot}"
-export BOT_LOG_DIR="${BOT_LOG_DIR:-/var/log/sunc-tg-bot}"
-BUN_BIN="${BUN_BIN:-/usr/local/bin/bun}"
+# Для systemd пути задаются в env-файле. Для start-nohup безопасный дефолт
+# находится в домашнем каталоге пользователя, а не в недоступных /var/lib и /var/log.
+export BOT_DATA_DIR="${BOT_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/sunc-tg-bot}"
+export BOT_LOG_DIR="${BOT_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/sunc-tg-bot}"
+BUN_BIN="${BUN_BIN:-$(command -v bun 2>/dev/null || ( [[ -x "$HOME/.bun/bin/bun" ]] && echo "$HOME/.bun/bin/bun" ) || echo "/usr/local/bin/bun")}"
 if [[ ! -x "$BUN_BIN" ]]; then
   echo "Bun executable is missing: $BUN_BIN. Set BUN_BIN to its absolute path." >&2
   exit 1

@@ -137,32 +137,10 @@ chmod +x deploy/start-nohup.sh
 ./deploy/start-nohup.sh status
 ```
 
-Остановить и посмотреть логи:
+Перезапустить после обновления, остановить и посмотреть логи:
 
 ```bash
-./deploy/start-nohup.sh stop
-tail -f ~/.local/state/sunc-info/bot.log
-tail -f ~/.local/state/sunc-info/portal.log
-```
-
-Этот вариант переживает выход из SSH, но не перезагрузку сервера и не аварийное завершение. Для работы после reboot используйте user-level systemd. Не запускайте оба способа одновременно.
-
-### Самый простой вариант без systemd
-
-Если нужен запуск в стиле `nohup`, готовый helper запускает портал, ждёт его API, затем бот; PID и логи сохраняются в `~/.local/state/sunc-info`:
-
-```bash
-cd /home/mag/fmshinfo
-bun install --frozen-lockfile
-bun run build
-chmod +x deploy/start-nohup.sh
-./deploy/start-nohup.sh start
-./deploy/start-nohup.sh status
-```
-
-Остановить и посмотреть логи:
-
-```bash
+./deploy/start-nohup.sh restart
 ./deploy/start-nohup.sh stop
 tail -f ~/.local/state/sunc-info/bot.log
 tail -f ~/.local/state/sunc-info/portal.log
