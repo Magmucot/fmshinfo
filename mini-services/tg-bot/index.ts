@@ -1764,22 +1764,62 @@ function main() {
     const userId = ctx.from?.id;
     if (!isAdmin(userId)) {
       return ctx.reply(
-        "🔒 <b>Панель администратора защищена.</b>\nДля входа используйте команду: <code>/auth &lt;ключ_доступа&gt;</code>",
+        "🔒 <b>Панель администратора защищена.</b>\nДля входа отправьте команду с ключом доступа:\n<code>/auth &lt;пароль_администратора&gt;</code>\n\n<i>(Сообщение с паролем сразу удаляется ботом для безопасности)</i>",
         { parse_mode: "HTML" }
       );
     }
+
+    const keyboard = new InlineKeyboard()
+      .text("📋 Логи бота (30)", "admin:logs:30")
+      .text("📊 Статистика", "admin:stats")
+      .row()
+      .text("🔒 Выйти из режима админа", "admin:unauth");
+
     return ctx.reply(
       "🛡️ <b>Панель администратора «СУНЦ Инфо»</b>\n" +
         "──────────────────────────\n" +
-        "• 📋 <code>/logs 30</code> — просмотр системного журнала\n" +
-        "• 📊 <code>/stats</code> — статистика с активностью учеников\n" +
-        "• 🔒 <code>/unauth</code> — завершить сессию администратора",
+        "Вы авторизованы как администратор бота.\n\n" +
+        "<b>Доступные функции:</b>\n" +
+        "• 📋 <code>/logs [N]</code> — просмотр системного журнала (например, <code>/logs 50</code>)\n" +
+        "• 📊 <code>/stats</code> — статистика школы и активность учеников\n" +
+        "• 🔒 <code>/unauth</code> — завершить сессию администратора\n\n" +
+        "<i>Нажмите кнопку ниже или используйте команды:</i>",
+      { parse_mode: "HTML", reply_markup: keyboard }
+    );
+  });
+
+  bot.callbackQuery("admin:logs:30", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён. Вы не авторизованы как администратор.");
+    }
+    const lines = getRecentBotLogs(30);
+    const codeBlock = lines.join("\n");
+    await ctx.reply(
+      `📋 <b>Журнал событий бота (последние ${lines.length} строк):</b>\n\n<pre><code>${esc(codeBlock)}</code></pre>`,
       { parse_mode: "HTML" }
     );
   });
 
-  // Статистика берётся из локального файла бота: веб-портал для неё не нужен.
-  bot.command(["stats", "users"], async (ctx) => {
+  bot.callbackQuery("admin:unauth", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!userId) return;
+    if (userId === 1573047506) {
+      return ctx.reply("ℹ️ Главный владелец бота не может быть деавторизован.");
+    }
+    if (verifiedAdminIds.has(userId)) {
+      verifiedAdminIds.delete(userId);
+      saveVerifiedAdmins();
+      botLogger.audit("AUTH_REVOKE", `User ${userId} revoked admin privileges`);
+      return ctx.reply("🔒 Режим администратора отключён. Вы вернулись в режим обычного пользователя.");
+    }
+    return ctx.reply("Вы не авторизованы как администратор.");
+  });
+
+  // Функция формирования статистики бота
+  async function replyStats(ctx: Context) {
     const userIsAdmin = isAdmin(ctx.from?.id);
     const now = Date.now();
     const activeTodayAfter = now - 24 * 60 * 60 * 1000;
@@ -1840,6 +1880,14 @@ function main() {
       }
     }
     await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+  }
+
+  // Статистика берётся из локального файла бота: веб-портал для неё не нужен.
+  bot.command(["stats", "users"], replyStats);
+
+  bot.callbackQuery("admin:stats", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await replyStats(ctx);
   });
 
   // Журнал недавних событий (логи) — ДОСТУПНО ТОЛЬКО АДМИНИСТРАТОРАМ!
