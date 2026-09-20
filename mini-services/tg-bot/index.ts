@@ -19,6 +19,7 @@ import { FoodRatingBook, FoodRatingTarget, formatFoodRating } from "./food-ratin
 import { Bot, Context, InlineKeyboard, Keyboard } from "grammy";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
 import { join } from "path";
+import crypto from "crypto";
 import { botLogger, getRecentBotLogs } from "./logger";
 
 // Загрузка .env из корня проекта если не подхвачен Bun
@@ -1708,7 +1709,18 @@ function main() {
       );
     }
 
-    if (ADMIN_KEY && key === ADMIN_KEY) {
+    const isKeyValid = (() => {
+      if (!ADMIN_KEY || !key) return false;
+      const bufA = Buffer.from(key);
+      const bufB = Buffer.from(ADMIN_KEY);
+      if (bufA.length !== bufB.length) {
+        crypto.timingSafeEqual(bufA, bufA);
+        return false;
+      }
+      return crypto.timingSafeEqual(bufA, bufB);
+    })();
+
+    if (isKeyValid) {
       verifiedAdminIds.add(userId);
       saveVerifiedAdmins();
       botLogger.audit("AUTH_SUCCESS", `User ${userId} (@${username}) successfully authenticated as admin`);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isAdminRequest } from "@/lib/server/auth";
+import { isAdminRequest, getClientIp } from "@/lib/server/auth";
 import { ensureSeedData } from "@/lib/server/seed";
+import { portalLogger } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,9 @@ export async function GET(request: NextRequest) {
 
 /** POST /api/duty — добавить/обновить дежурство (заголовок X-Admin-Key) */
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
   if (!isAdminRequest(request)) {
+    portalLogger.warn("SECURITY", `Unauthorized POST /api/duty attempt from IP: ${ip}`);
     return NextResponse.json({ ok: false, error: "Неверный X-Admin-Key" }, { status: 401 });
   }
 
@@ -57,6 +60,11 @@ export async function POST(request: NextRequest) {
       ? await db.dutyEntry.update({ where: { id: body.id }, data })
       : await db.dutyEntry.create({ data });
 
+    portalLogger.audit(
+      "ADMIN_ACTION",
+      `Admin (IP: ${ip}) ${body.id ? "updated" : "created"} duty: date=${entry.date}, type=${entry.dutyType}, class=${entry.className || "none"}`
+    );
+
     return NextResponse.json({ ok: true, entry });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 400 });
@@ -65,7 +73,9 @@ export async function POST(request: NextRequest) {
 
 /** DELETE /api/duty?id=… — удалить запись (заголовок X-Admin-Key) */
 export async function DELETE(request: NextRequest) {
+  const ip = getClientIp(request);
   if (!isAdminRequest(request)) {
+    portalLogger.warn("SECURITY", `Unauthorized DELETE /api/duty attempt from IP: ${ip}`);
     return NextResponse.json({ ok: false, error: "Неверный X-Admin-Key" }, { status: 401 });
   }
   const id = Number(request.nextUrl.searchParams.get("id"));
@@ -74,6 +84,7 @@ export async function DELETE(request: NextRequest) {
   }
   try {
     await db.dutyEntry.delete({ where: { id } });
+    portalLogger.audit("ADMIN_ACTION", `Admin (IP: ${ip}) deleted duty entry id=${id}`);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 400 });

@@ -1,16 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isAdminRequest } from "@/lib/server/auth";
+import { isAdminRequest, getClientIp } from "@/lib/server/auth";
+import { portalLogger } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/users/stats
- * Сводная аналитика пользователей СУНЦ Инфо: Telegram-бот + веб-портал
+ * Сводная аналитика пользователей СУНЦ Инфо: Telegram-бот + веб-портал.
+ * Без ключа: только публичные агрегированные цифры.
+ * С ключом администратора: детализированный реестр учеников со всеми полями.
  */
 export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const hasAdminHeader = Boolean(
+      request.headers.get("x-admin-key") || request.headers.get("authorization")
+    );
     const isAdmin = isAdminRequest(request);
+
+    if (hasAdminHeader && !isAdmin) {
+      portalLogger.warn(
+        "SECURITY",
+        `Invalid admin key provided on /api/users/stats from IP: ${ip}`
+      );
+    } else if (isAdmin) {
+      portalLogger.audit(
+        "ADMIN_ACCESS",
+        `Admin (IP: ${ip}) accessed users stats and detailed registry`
+      );
+    }
 
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -56,32 +75,40 @@ export async function GET(request: NextRequest) {
       else bySubgroup["none"] = (bySubgroup["none"] ?? 0) + 1;
     }
 
-    // Последние активные пользователи (для админа — с именами, юзернеймами, классами и подгруппами)
+    // Детализированный реестр пользователей (только для верифицированного администратора)
     let recentUsers: Array<{
       id: string;
       username: string | null;
       firstName: string | null;
+      lastName: string | null;
       className: string | null;
       subgroup: number | null;
       englishGroup: string | null;
+      languageCode: string | null;
+      isPremium: boolean;
       actionsCount: number;
       lastAction: string | null;
+      firstSeenAt: Date;
       lastActiveAt: Date;
     }> = [];
 
     if (isAdmin) {
       recentUsers = await db.telegramUser.findMany({
-        take: 50,
+        take: 250,
         orderBy: { lastActiveAt: "desc" },
         select: {
           id: true,
           username: true,
           firstName: true,
+          lastName: true,
           className: true,
           subgroup: true,
           englishGroup: true,
+          languageCode: true,
+          isPremium: true,
           actionsCount: true,
           lastAction: true,
+          firstSeenAt: true,
           lastActiveAt: true,
         },
       });
@@ -106,7 +133,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("[api/users/stats] Ошибка:", error);
+    portalLogger.error("STATS_API", "GET /api/users/stats error", error);
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });
   }
 }

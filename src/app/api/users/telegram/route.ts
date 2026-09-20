@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { telegramPayload } from "@/lib/server/payloads";
 import { db } from "@/lib/db";
-import { isAdminRequest } from "@/lib/server/auth";
+import { isAdminRequest, getClientIp } from "@/lib/server/auth";
 import { portalLogger } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/users/telegram
- * Сохраняет или обновляет профиль пользователя при любом обращении к боту.
+ * Сохраняет или обновляет профиль пользователя при обращении к боту.
+ * Строго защищено ADMIN_KEY (используется микросервисом tg-bot).
  */
 export async function POST(request: NextRequest) {
+  const ip = getClientIp(request);
   if (!isAdminRequest(request)) {
+    portalLogger.warn("SECURITY", `Unauthorized POST /api/users/telegram attempt from IP: ${ip}`);
     return NextResponse.json({ ok: false, error: "Нет доступа" }, { status: 401 });
   }
+
   try {
     const parsed = telegramPayload.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
@@ -36,12 +40,23 @@ export async function POST(request: NextRequest) {
 /**
  * GET /api/users/telegram
  * Возвращает пользователей бота.
- * При наличии X-Admin-Key выдаётся полный детализированный список.
+ * При наличии валидного X-Admin-Key выдаётся полный детализированный список.
  * Без ключа — возвращается обезличенная сводка (общее количество, распределение по классам и подгруппам).
  */
 export async function GET(request: NextRequest) {
   try {
+    const ip = getClientIp(request);
+    const hasAdminHeader = Boolean(
+      request.headers.get("x-admin-key") || request.headers.get("authorization")
+    );
     const isAdmin = isAdminRequest(request);
+
+    if (hasAdminHeader && !isAdmin) {
+      portalLogger.warn(
+        "SECURITY",
+        `Invalid admin key provided on GET /api/users/telegram from IP: ${ip}`
+      );
+    }
 
     const searchParams = request.nextUrl.searchParams;
     const classFilter = searchParams.get("class");
@@ -80,6 +95,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Для администратора — полный список с фильтрами
+    portalLogger.audit(
+      "ADMIN_ACCESS",
+      `Admin (IP: ${ip}) requested telegram users registry (filter: class=${classFilter ?? "all"}, search=${searchQuery ?? "none"})`
+    );
+
     const where: {
       className?: string;
       subgroup?: number;
@@ -119,11 +139,6 @@ export async function GET(request: NextRequest) {
       orderBy: { lastActiveAt: "desc" },
     });
 
-    portalLogger.info(
-      "ADMIN_API",
-      `GET /api/users/telegram: returned ${users.length} users (classFilter=${classFilter ?? "all"}, subFilter=${subgroupFilter ?? "all"}, search=${searchQuery ?? "none"})`
-    );
-
     const totalUsers = await db.telegramUser.count();
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const activeToday = await db.telegramUser.count({
@@ -156,7 +171,7 @@ export async function GET(request: NextRequest) {
       users,
     });
   } catch (error) {
-    console.error("[api/users/telegram] GET Ошибка:", error);
+    portalLogger.error("TELEGRAM_API", "GET /api/users/telegram error", error);
     return NextResponse.json({ ok: false, error: "Не удалось обработать запрос пользователей" }, { status: 500 });
   }
 }

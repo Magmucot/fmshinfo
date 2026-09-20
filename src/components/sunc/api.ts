@@ -168,6 +168,22 @@ export async function sendFeedback(name: string, contact: string, message: strin
   }
 }
 
+export interface TelegramUserProfile {
+  id: string;
+  username: string | null;
+  firstName: string | null;
+  lastName?: string | null;
+  className: string | null;
+  subgroup?: number | null;
+  englishGroup?: string | null;
+  languageCode?: string | null;
+  isPremium?: boolean;
+  actionsCount: number;
+  lastAction: string | null;
+  firstSeenAt?: string;
+  lastActiveAt: string;
+}
+
 export interface UsersStatsData {
   ok: boolean;
   isAdmin: boolean;
@@ -180,17 +196,7 @@ export interface UsersStatsData {
     topClasses: Array<{ className: string; count: number }>;
     byGrade: Record<string, number>;
     bySubgroup?: Record<string, number>;
-    recentUsers?: Array<{
-      id: string;
-      username: string | null;
-      firstName: string | null;
-      className: string | null;
-      subgroup?: number | null;
-      englishGroup?: string | null;
-      actionsCount: number;
-      lastAction: string | null;
-      lastActiveAt: string;
-    }>;
+    recentUsers?: TelegramUserProfile[];
   };
   web: {
     totalVisitors: number;
@@ -209,27 +215,94 @@ export function useUsersStats(adminKey?: string) {
   });
 }
 
+export interface ParsedLogEntry {
+  raw: string;
+  timestamp: string;
+  level: string;
+  category: string;
+  message: string;
+  userId?: string;
+  username?: string;
+}
+
 export interface AdminLogsData {
   ok: boolean;
   file: string;
   totalLines: number;
   count: number;
   lines: string[];
+  parsed?: ParsedLogEntry[];
 }
 
 /** Получение строк логов для админ-панели */
-export function useAdminLogs(adminKey?: string, file = "bot", level = "ALL") {
+export function useAdminLogs(
+  adminKey?: string,
+  file = "bot",
+  level = "ALL",
+  search?: string,
+  limit = 150,
+  autoRefresh = true
+) {
   return useQuery<AdminLogsData>({
-    queryKey: ["adminLogs", adminKey ?? "", file, level],
+    queryKey: ["adminLogs", adminKey ?? "", file, level, search ?? "", limit],
     queryFn: () => {
       const p = new URLSearchParams();
       p.set("file", file);
       if (level && level !== "ALL") p.set("level", level);
+      if (search && search.trim()) p.set("search", search.trim());
+      if (limit) p.set("limit", String(limit));
       return api<AdminLogsData>(`/api/admin/logs?${p.toString()}`, adminKey);
     },
     enabled: Boolean(adminKey),
-    refetchInterval: 6000, // автообновление каждые 6 сек при открытой консоли
+    refetchInterval: autoRefresh ? 5000 : false,
   });
 }
+
+export interface SystemMetricsData {
+  ok: boolean;
+  timestamp: string;
+  memory: {
+    totalBytes: number;
+    usedBytes: number;
+    freeBytes: number;
+    percent: number;
+    formatted: {
+      total: string;
+      used: string;
+      free: string;
+      procRss: string;
+      procHeap: string;
+    };
+  };
+  cpu: {
+    percent: number;
+    cores: number;
+    model: string;
+    loadavg: [number, number, number];
+  };
+  uptime: {
+    systemSeconds: number;
+    processSeconds: number;
+    formattedSystem: string;
+    formattedProcess: string;
+  };
+  platform: {
+    os: string;
+    arch: string;
+    nodeVersion: string;
+  };
+}
+
+/** Системные метрики нагрузки сервера (ОЗУ, CPU, Uptime) для администратора */
+export function useSystemMetrics(adminKey?: string, enabled = true) {
+  return useQuery<SystemMetricsData>({
+    queryKey: ["systemMetrics", adminKey ?? ""],
+    queryFn: () => api<SystemMetricsData>("/api/admin/system", adminKey),
+    enabled: Boolean(adminKey) && enabled,
+    refetchInterval: 3500, // автообновление каждые 3.5 сек
+    staleTime: 2000,
+  });
+}
+
 
 

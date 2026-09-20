@@ -117,17 +117,28 @@ export class Logger {
 export const portalLogger = new Logger("portal.log");
 export const botLogger = new Logger("bot.log");
 
+export interface ParsedLogEntry {
+  raw: string;
+  timestamp: string;
+  level: string;
+  category: string;
+  message: string;
+  userId?: string;
+  username?: string;
+}
+
 /** Чтение последних строк лог-файла для админ-панели */
 export function getRecentLogs(
   fileName: "bot.log" | "portal.log" | "audit.log" = "bot.log",
   limit = 100,
-  filterLevel?: string
-): { lines: string[]; totalLines: number; fileName: string } {
+  filterLevel?: string,
+  search?: string
+): { lines: string[]; parsed: ParsedLogEntry[]; totalLines: number; fileName: string } {
   try {
     ensureLogsDir();
     const filePath = join(LOGS_DIR, fileName);
     if (!existsSync(filePath)) {
-      return { lines: [], totalLines: 0, fileName };
+      return { lines: [], parsed: [], totalLines: 0, fileName };
     }
 
     const content = readFileSync(filePath, "utf-8");
@@ -137,11 +148,47 @@ export function getRecentLogs(
       lines = lines.filter((l) => l.includes(`[${filterLevel}]`));
     }
 
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      lines = lines.filter((l) => l.toLowerCase().includes(q));
+    }
+
     const totalLines = lines.length;
     const sliced = lines.slice(-limit).reverse(); // последние строки первыми
-    return { lines: sliced, totalLines, fileName };
+
+    const parsed: ParsedLogEntry[] = sliced.map((raw) => {
+      const match = raw.match(/^\[(.*?)\]\s+\[(.*?)\]\s+\[(.*?)\]\s*(.*)$/);
+      let timestamp = "";
+      let level = "INFO";
+      let category = "GENERAL";
+      let message = raw;
+      if (match) {
+        timestamp = match[1];
+        level = match[2];
+        category = match[3];
+        message = match[4];
+      }
+
+      const userMatch = raw.match(/(?:User\s+|ID\s*[:=]\s*|\buser\s+)(\d{5,})/i);
+      const userId = userMatch ? userMatch[1] : undefined;
+
+      const usernameMatch = raw.match(/@([a-zA-Z0-9_]{3,32})/);
+      const username = usernameMatch ? usernameMatch[1] : undefined;
+
+      return {
+        raw,
+        timestamp,
+        level,
+        category,
+        message,
+        userId,
+        username,
+      };
+    });
+
+    return { lines: sliced, parsed, totalLines, fileName };
   } catch (e) {
     console.error("[logger] Ошибка чтения логов:", e);
-    return { lines: [], totalLines: 0, fileName };
+    return { lines: [], parsed: [], totalLines: 0, fileName };
   }
 }
