@@ -226,16 +226,25 @@ export function UsersStatsSection() {
             Статистика Telegram-бота (@fmshinfobot), активность классов и защищённый аудит
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="gap-2 rounded-xl"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          Обновить
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          {data?.requestedAt && (
+            <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground border border-border/50">
+              <Clock className="h-3.5 w-3.5 text-primary" />
+              <span>Время запроса:</span>
+              <span className="font-mono font-medium text-foreground">{data.requestedAt}</span>
+            </div>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="gap-2 rounded-xl"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Обновить
+          </Button>
+        </div>
       </div>
 
       {/* Ключевые метрики в Bento Grid */}

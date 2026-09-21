@@ -187,6 +187,8 @@ export interface TelegramUserProfile {
 export interface UsersStatsData {
   ok: boolean;
   isAdmin: boolean;
+  timestamp?: string;
+  requestedAt?: string;
   bot: {
     totalUsers: number;
     activeToday: number;

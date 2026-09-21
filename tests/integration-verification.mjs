@@ -146,6 +146,10 @@ try {
     assert.equal(pub.status, 200);
     assert.equal(pub.body.isAdmin, false);
     assert.equal(pub.body.bot.recentUsers.length, 0, 'Для не-админа recentUsers должен быть пустым массивом');
+    assert.equal(typeof pub.body.requestedAt, 'string', 'Должно присутствовать время запроса requestedAt');
+    assert.equal(typeof pub.body.timestamp, 'string', 'Должен присутствовать timestamp');
+    assert.ok(pub.body.requestedAt.includes('NSK'), 'Время запроса должно быть в новосибирском часовом поясе NSK');
+    console.log(`   ✅ Время запроса в stats: ${pub.body.requestedAt}`);
     console.log('   ✅ Публичный доступ: приватные данные пользователей скрыты');
 
     // Админский запрос

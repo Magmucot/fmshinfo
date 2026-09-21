@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isAdminRequest, getClientIp } from "@/lib/server/auth";
-import { portalLogger } from "@/lib/server/logger";
+import { portalLogger, formatNskTimestamp } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
 
@@ -114,9 +114,14 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    const now = new Date();
+    const requestedAt = formatNskTimestamp(now);
+
     return NextResponse.json({
       ok: true,
       isAdmin,
+      timestamp: now.toISOString(),
+      requestedAt,
       bot: {
         totalUsers: totalBotUsers,
         activeToday: activeTodayBot,

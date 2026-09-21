@@ -660,6 +660,31 @@ function fmtRu(d: Date): string {
   return `${day}.${month}.${d.getUTCFullYear()}`;
 }
 
+/** Форматирование времени по Новосибирску (UTC+7): ДД.ММ.ГГГГ ЧЧ:ММ:СС NSK */
+function formatNskTime(d: Date = new Date()): string {
+  const nsk = new Date(d.getTime() + 7 * 3600 * 1000);
+  const day = String(nsk.getUTCDate()).padStart(2, "0");
+  const month = String(nsk.getUTCMonth() + 1).padStart(2, "0");
+  const year = nsk.getUTCFullYear();
+  const hours = String(nsk.getUTCHours()).padStart(2, "0");
+  const minutes = String(nsk.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(nsk.getUTCSeconds()).padStart(2, "0");
+  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds} NSK`;
+}
+
+/** Форматирование компактного времени активности по Новосибирску */
+function formatRelativeOrNskTime(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  const nsk = new Date(d.getTime() + 7 * 3600 * 1000);
+  const day = String(nsk.getUTCDate()).padStart(2, "0");
+  const month = String(nsk.getUTCMonth() + 1).padStart(2, "0");
+  const hours = String(nsk.getUTCHours()).padStart(2, "0");
+  const minutes = String(nsk.getUTCMinutes()).padStart(2, "0");
+  return `${day}.${month} ${hours}:${minutes}`;
+}
+
 /**
  * Вычисляет реальную дату для дня недели:
  * Например: "сегодня, 04.09", "завтра, 05.09", "03.09"
@@ -1905,8 +1930,10 @@ function main() {
     }
 
     const topClasses = Object.entries(byClass).sort(([, left], [, right]) => right - left);
+    const requestTime = formatNskTime();
     const lines = [
-      "📊 <b>Статистика «СУНЦ Инфо»</b>\n",
+      "📊 <b>Статистика «СУНЦ Инфо»</b>",
+      `🕒 <b>Время запроса:</b> <code>${requestTime}</code>\n`,
       "<blockquote>",
       `👥 <b>Всего пользователей:</b> <code>${userProfiles.size}</code>`,
       `⚡ <b>Активных сегодня:</b> <code>${activeToday}</code>`,
@@ -1937,7 +1964,8 @@ function main() {
           const label = profile.username ? `@${esc(profile.username)}` : (profile.firstName ? esc(profile.firstName) : `ID: ${profile.id}`);
           const className = profile.className ? ` [<b>${esc(profile.className)}</b>]` : "";
           const action = profile.lastAction ? ` · <i>${esc(profile.lastAction)}</i>` : "";
-          lines.push(`• <code>${profile.id}</code> ${label}${className}${action}`);
+          const time = profile.lastActiveAt ? ` (<code>${formatRelativeOrNskTime(profile.lastActiveAt)}</code>)` : "";
+          lines.push(`• <code>${profile.id}</code> ${label}${className}${action}${time}`);
         }
         lines.push("</blockquote>");
       }
