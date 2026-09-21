@@ -42,3 +42,23 @@ test('today changes at Novosibirsk midnight and preserves Sunday', () => {
   assert.equal(scheduleButtonDay('6'), 6);
   for (const value of ['7', '-1', 'NaN', '', '1.5']) assert.equal(scheduleButtonDay(value), null);
 });
+
+test('today callback patterns match regex routers', () => {
+  const schedRegex = /^sched:([^:]+):([^:]+)(?::([^:]+))?$/;
+  const matchToday = 'sched:10-1:today'.match(schedRegex);
+  assert.ok(matchToday);
+  assert.equal(matchToday[1], '10-1');
+  assert.equal(matchToday[2], 'today');
+  assert.equal(scheduleButtonDay(matchToday[2], new Date('2026-09-13T17:00:00Z')), 1);
+
+  const matchTodayFull = 'sched:10-1:today:full'.match(schedRegex);
+  assert.ok(matchTodayFull);
+  assert.equal(matchTodayFull[1], '10-1');
+  assert.equal(matchTodayFull[2], 'today');
+  assert.equal(matchTodayFull[3], 'full');
+
+  const menuRegex = /^menu:(.+)$/;
+  const matchMenuToday = 'menu:today'.match(menuRegex);
+  assert.ok(matchMenuToday);
+  assert.equal(matchMenuToday[1], 'today');
+});

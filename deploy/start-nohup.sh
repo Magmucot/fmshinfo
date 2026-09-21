@@ -64,21 +64,29 @@ status() {
 case "${1:-status}" in
   start)
     refuse_duplicate_systemd
-    start_portal
-    for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null 2>&1 && break; sleep 1; done
-    curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null || { echo "Portal did not become ready; see $(log_file portal)" >&2; exit 1; }
+    if [[ "${START_PORTAL:-0}" == "1" || "${2:-}" == "--with-portal" ]]; then
+      start_portal
+      for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null 2>&1 && break; sleep 1; done
+    fi
     start_bot
+    for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3003/health >/dev/null 2>&1 && break; sleep 1; done
+    curl --fail --silent http://127.0.0.1:3003/health >/dev/null || { echo "Bot did not become ready; see $(log_file bot)" >&2; exit 1; }
     ;;
   stop) stop_one bot; stop_one portal ;;
   restart)
     stop_one bot
-    stop_one portal
-    refuse_duplicate_systemd
-    start_portal
-    for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null 2>&1 && break; sleep 1; done
-    curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null || { echo "Portal did not become ready; see $(log_file portal)" >&2; exit 1; }
+    if [[ "${START_PORTAL:-0}" == "1" || "${2:-}" == "--with-portal" ]]; then
+      stop_one portal
+      refuse_duplicate_systemd
+      start_portal
+      for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3000/api/bells >/dev/null 2>&1 && break; sleep 1; done
+    else
+      refuse_duplicate_systemd
+    fi
     start_bot
+    for _ in {1..30}; do curl --fail --silent http://127.0.0.1:3003/health >/dev/null 2>&1 && break; sleep 1; done
+    curl --fail --silent http://127.0.0.1:3003/health >/dev/null || { echo "Bot did not become ready; see $(log_file bot)" >&2; exit 1; }
     ;;
   status) status ;;
-  *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {start|stop|restart|status} [--with-portal]" >&2; exit 2 ;;
 esac

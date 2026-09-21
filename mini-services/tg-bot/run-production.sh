@@ -3,7 +3,7 @@ set -euo pipefail
 
 : "${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN in the service environment}"
 : "${ADMIN_KEY:?Set ADMIN_KEY to the same key used by the portal}"
-: "${PORTAL_API:?Set PORTAL_API to the portal base URL}"
+export PORTAL_API="${PORTAL_API:-internal}"
 export NODE_ENV=production
 export BOT_HOST="${BOT_HOST:-127.0.0.1}"
 export BOT_PORT="${BOT_PORT:-3003}"

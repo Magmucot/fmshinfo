@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "
 import { join } from "path";
 import crypto from "crypto";
 import { botLogger, getRecentBotLogs } from "./logger";
+import { dispatchApi, handleApiRoute } from "../../src/lib/server/dispatcher";
 
 // Загрузка .env из корня проекта если не подхвачен Bun
 function loadRootEnv() {
@@ -41,7 +42,7 @@ function loadRootEnv() {
     } catch {}
   }
 }
-if (process.env.NODE_ENV !== "production") loadRootEnv();
+loadRootEnv();
 
 const PORT = Number(process.env.BOT_PORT ?? 3003);
 const HEALTH_HOST = process.env.BOT_HOST ?? "127.0.0.1";
@@ -648,6 +649,29 @@ function putApiCache(path: string, data: unknown, ttlMs: number) {
 
 async function fetchPortalApi<T>(path: string, ttlMs: number): Promise<T | null> {
   const start = Date.now();
+
+  // 1. Попытка вызвать диспетчер напрямую в памяти (in-process)
+  const useInProcess =
+    !process.env.PORTAL_API ||
+    process.env.PORTAL_API === "internal" ||
+    process.env.PORTAL_API.includes("localhost:3000") ||
+    process.env.PORTAL_API.includes("127.0.0.1:3000");
+
+  if (useInProcess) {
+    try {
+      const data = await dispatchApi<T>(path);
+      if (data !== null) {
+        const dur = Date.now() - start;
+        botLogger.api(`(in-process) ${path}`, 200, dur);
+        putApiCache(path, data, ttlMs);
+        return data;
+      }
+    } catch (err) {
+      botLogger.warn("API", `In-process dispatch for ${path} failed, fallback to HTTP: ${err}`);
+    }
+  }
+
+  // 2. Сетевой fallback к внешнему HTTP источнику
   try {
     const res = await fetch(`${API}${path}`, {
       signal: AbortSignal.timeout(60_000),
@@ -1014,6 +1038,8 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
   if (!data) return { text: "⚠️ Меню временно недоступно. Попробуйте позже." };
 
   const shortDate = data.date.replace(/\.20\d\d$/, "");
+  const todayStr = fmtRu(nowNsk());
+  const isToday = data.date === todayStr;
 
   const keyboard = new InlineKeyboard();
   let hasNavigation = false;
@@ -1022,14 +1048,19 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
     if (idx > 0) {
       const prev = data.availableDates[idx - 1];
       keyboard.text(`◀ ${prev.replace(/\.20\d\d$/, "")}`, `menu:${prev}`);
-      hasNavigation = true;
     }
-    keyboard.text("🍱 График смен", "canteen:info");
-    hasNavigation = true;
+    keyboard.text(isToday ? "• Сегодня •" : "📅 Сегодня", "menu:today");
     if (idx >= 0 && idx < data.availableDates.length - 1) {
       const next = data.availableDates[idx + 1];
       keyboard.text(`${next.replace(/\.20\d\d$/, "")} ▶`, `menu:${next}`);
     }
+    keyboard.row();
+    keyboard.text("🍱 График смен", "canteen:info");
+    hasNavigation = true;
+  } else {
+    keyboard.text(isToday ? "• Сегодня •" : "📅 Сегодня", "menu:today");
+    keyboard.text("🍱 График смен", "canteen:info");
+    hasNavigation = true;
   }
 
   if (!data.meals || !data.meals.length) {
@@ -1070,7 +1101,6 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
   const hasDishes = data.meals.some((m) => m.dishes && m.dishes.length > 0);
   const dateToken = compactMenuDate(data.date);
   if (dateToken && hasDishes) {
-    if (hasNavigation) keyboard.row();
     keyboard.text("⭐ Оценить блюдо", `rate:menu:${dateToken}`);
   }
 
@@ -1187,6 +1217,57 @@ export async function canteenText(className?: string): Promise<{ text: string; k
   return { text: lines.join("\n"), keyboard };
 }
 
+/** Создание инлайн-клавиатуры для расписания с кнопкой «Сегодня» и днями недели */
+function buildScheduleKeyboard(
+  group: string,
+  selectedWd: number,
+  userId?: number,
+  forceFullClass = false,
+  showFullClassToggle = false
+): InlineKeyboard {
+  const keyboard = new InlineKeyboard();
+  const todayWd = nowNsk().getUTCDay();
+  const isToday = selectedWd === todayWd;
+
+  keyboard.text(isToday ? "• Сегодня •" : "📅 Сегодня", `sched:${group}:today`).row();
+
+  const daysRow = [
+    { name: "Пн", wd: 1 },
+    { name: "Вт", wd: 2 },
+    { name: "Ср", wd: 3 },
+    { name: "Чт", wd: 4 },
+    { name: "Пт", wd: 5 },
+    { name: "Сб", wd: 6 },
+  ];
+  for (const day of daysRow) {
+    const label = day.wd === selectedWd ? `•${day.name}•` : day.name;
+    keyboard.text(label, `sched:${group}:${day.wd}`);
+  }
+  keyboard.row();
+
+  const hasConfiguredSubgroups =
+    userId && isSavedClass(userId, group, userClassMap)
+      ? Boolean(userSubgroupMap.get(userId) || userEnglishMap.get(userId))
+      : false;
+
+  if (hasConfiguredSubgroups || showFullClassToggle) {
+    if (forceFullClass) {
+      keyboard.text("👤 Моя подгруппа", `sched:${group}:${selectedWd}:my`);
+    } else {
+      keyboard.text("👥 Весь класс", `sched:${group}:${selectedWd}:full`);
+    }
+    keyboard.text("⚙️ Подгруппы", `subgroup:menu:${group}`).row();
+  } else if (isSavedClass(userId, group, userClassMap)) {
+    keyboard.text("⚙️ Выбрать подгруппу", `subgroup:menu:${group}`).row();
+  }
+
+  keyboard
+    .text("🍱 Столовая", `canteen:class:${group}`)
+    .text("🏫 Сменить класс", "pickclass");
+
+  return keyboard;
+}
+
 /** Расписание класса */
 export async function scheduleText(
   group: string,
@@ -1205,9 +1286,7 @@ export async function scheduleText(
   const dateLabel = getWeekdayDateLabel(wd, tomorrow);
 
   if (wd === 0) {
-    const keyboard = new InlineKeyboard()
-      .text("Пн", `sched:${group}:1`).text("Вт", `sched:${group}:2`).text("Ср", `sched:${group}:3`)
-      .text("Чт", `sched:${group}:4`).text("Пт", `sched:${group}:5`).text("Сб", `sched:${group}:6`);
+    const keyboard = buildScheduleKeyboard(group, wd, userId, forceFullClass);
     return {
       text: `<blockquote>☀️ <b>${WEEKDAYS[wd]} (${dateLabel})</b> — занятий у класса <b>${esc(group)}</b> нет (выходной).</blockquote>\nВыберите учебный день:`,
       keyboard,
@@ -1221,9 +1300,7 @@ export async function scheduleText(
   const rawDayLessons = data.days[String(wd)] ?? [];
 
   if (!rawDayLessons.length) {
-    const keyboard = new InlineKeyboard()
-      .text("Пн", `sched:${group}:1`).text("Вт", `sched:${group}:2`).text("Ср", `sched:${group}:3`)
-      .text("Чт", `sched:${group}:4`).text("Пт", `sched:${group}:5`).text("Сб", `sched:${group}:6`);
+    const keyboard = buildScheduleKeyboard(group, wd, userId, forceFullClass);
     return {
       text: `<blockquote>📭 На <b>${WEEKDAYS[wd]} (${dateLabel})</b> занятий у <b>${esc(group)}</b> нет.</blockquote>`,
       keyboard,
@@ -1235,11 +1312,7 @@ export async function scheduleText(
     : rawDayLessons;
 
   if (isFilteringActive && !lessons.length) {
-    const keyboard = new InlineKeyboard()
-      .text("Пн", `sched:${group}:1`).text("Вт", `sched:${group}:2`).text("Ср", `sched:${group}:3`)
-      .text("Чт", `sched:${group}:4`).text("Пт", `sched:${group}:5`).text("Сб", `sched:${group}:6`).row()
-      .text("👥 Показать весь класс", `sched:${group}:${wd}:full`)
-      .text("⚙️ Сменить подгруппу", `subgroup:menu:${group}`);
+    const keyboard = buildScheduleKeyboard(group, wd, userId, forceFullClass, true);
     return {
       text: `<blockquote>☀️ <b>${WEEKDAYS[wd]} (${dateLabel})</b> — у вашей подгруппы уроков нет (выходной день!).</blockquote>`,
       keyboard,
@@ -1392,25 +1465,7 @@ export async function scheduleText(
     lines.push(afterLines.join("\n"));
   }
 
-  const keyboard = new InlineKeyboard()
-    .text("Пн", `sched:${group}:1`).text("Вт", `sched:${group}:2`).text("Ср", `sched:${group}:3`)
-    .text("Чт", `sched:${group}:4`).text("Пт", `sched:${group}:5`).text("Сб", `sched:${group}:6`).row();
-
-  const hasConfiguredSubgroups = userId && isSavedClass(userId, group, userClassMap) ? Boolean(userSubgroupMap.get(userId) || userEnglishMap.get(userId)) : false;
-  if (hasConfiguredSubgroups) {
-    if (forceFullClass) {
-      keyboard.text("👤 Моя подгруппа", `sched:${group}:${wd}:my`);
-    } else {
-      keyboard.text("👥 Весь класс", `sched:${group}:${wd}:full`);
-    }
-    keyboard.text("⚙️ Подгруппы", `subgroup:menu:${group}`).row();
-  } else if (isSavedClass(userId, group, userClassMap)) {
-    keyboard.text("⚙️ Выбрать подгруппу", `subgroup:menu:${group}`).row();
-  }
-
-  keyboard
-    .text("🍱 Столовая", `canteen:class:${group}`)
-    .text("🏫 Сменить класс", "pickclass");
+  const keyboard = buildScheduleKeyboard(group, wd, userId, forceFullClass);
 
   return { text: lines.join("\n"), keyboard };
 }
@@ -1883,24 +1938,23 @@ function main() {
     }
 
     try {
-      const res = await fetch(`${API}/api/admin/system`, {
-        headers: {
-          Accept: "application/json",
-          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
-        },
-        signal: AbortSignal.timeout(5000),
+      let data: any = null;
+      const inProc = await handleApiRoute("/api/admin/system", {
+        headers: { "X-Admin-Key": ADMIN_KEY },
       });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+      if (inProc.status === 200) {
+        data = inProc.data;
+      } else {
+        const res = await fetch(`${API}/api/admin/system`, {
+          headers: {
+            Accept: "application/json",
+            ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
       }
-
-      const data = (await res.json()) as {
-        ok: boolean;
-        memory: { percent: number; formatted: { total: string; free: string; used: string } };
-        cpu: { percent: number; cores: number; model: string; loadavg: number[] };
-        uptime: { formattedSystem: string; formattedProcess: string };
-      };
 
       const lines = [
         "🖥️ <b>Состояние сервера «СУНЦ Инфо»</b>\n",
@@ -1976,19 +2030,26 @@ function main() {
 
     let reports: Array<{ id: number | string; name: string; contact: string; message: string; createdAt?: string; createdAtNsk?: string }> = [];
 
-    // Попытка получить свежие репорты из БД портала через API
+    // Попытка получить свежие репорты из БД через In-Process или API
     try {
-      const res = await fetch(`${API}/api/feedback`, {
-        headers: {
-          Accept: "application/json",
-          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
-        },
-        signal: AbortSignal.timeout(5000),
+      const inProc = await handleApiRoute("/api/feedback", {
+        headers: { "X-Admin-Key": ADMIN_KEY },
       });
-      if (res.ok) {
-        const data = (await res.json()) as { items?: any[] };
-        if (Array.isArray(data.items)) {
-          reports = data.items;
+      if (inProc.status === 200 && Array.isArray(inProc.data?.items)) {
+        reports = inProc.data.items;
+      } else {
+        const res = await fetch(`${API}/api/feedback`, {
+          headers: {
+            Accept: "application/json",
+            ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { items?: any[] };
+          if (Array.isArray(data.items)) {
+            reports = data.items;
+          }
         }
       }
     } catch {
@@ -2075,13 +2136,19 @@ function main() {
       return ctx.reply("🔒 Доступ запрещён.");
     }
     try {
-      await fetch(`${API}/api/feedback?clear=all`, {
+      const inProc = await handleApiRoute("/api/feedback?clear=all", {
         method: "DELETE",
-        headers: {
-          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
-        },
-        signal: AbortSignal.timeout(5000),
+        headers: { ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}) },
       });
+      if (inProc.status !== 200) {
+        await fetch(`${API}/api/feedback?clear=all`, {
+          method: "DELETE",
+          headers: {
+            ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+      }
     } catch {
       // ignore
     }
@@ -2116,18 +2183,28 @@ function main() {
     const contactStr = username ? `@${username}` : (userId ? `tg:${userId}` : "Telegram");
     const nameWithClass = savedClass ? `${senderName} [${savedClass}]` : senderName;
 
-    // 1. Отправляем в API портала
+    // 1. Отправляем в API (In-Process или HTTP)
     try {
-      await fetch(`${API}/api/feedback`, {
+      const inProc = await handleApiRoute("/api/feedback", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           name: nameWithClass,
           contact: contactStr,
           message: trimmed,
-        }),
-        signal: AbortSignal.timeout(5000),
+        },
       });
+      if (inProc.status !== 200) {
+        await fetch(`${API}/api/feedback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: nameWithClass,
+            contact: contactStr,
+            message: trimmed,
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+      }
     } catch (e: any) {
       botLogger.warn("FEEDBACK", `Не удалось отправить репорт в API: ${e?.message}`);
     }
@@ -2903,7 +2980,7 @@ function main() {
       const res = await canteenText();
       return ctx.reply(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     }
-    const res = await menuText(date);
+    const res = await menuText(date === "today" ? undefined : date);
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: res.keyboard });
     } catch (e: any) {
@@ -3057,7 +3134,7 @@ if (import.meta.main) {
   const healthServer = Bun.serve({
     hostname: HEALTH_HOST,
     port: PORT,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === "/health") {
         botLogger.debug("HEALTH", `Health check ping от ${req.headers.get("user-agent") || "unknown"}`);
@@ -3081,8 +3158,22 @@ if (import.meta.main) {
             "now_status",
             "search_teacher_classroom",
             "users_and_classes_stats",
+            "in_process_api_dispatcher",
+            "today_navigation_buttons",
           ],
         }, { status: pollingReady ? 200 : 503 });
+      }
+      if (url.pathname.startsWith("/api/")) {
+        let body: any = undefined;
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          body = await req.json().catch(() => undefined);
+        }
+        const result = await handleApiRoute(url.pathname + url.search, {
+          method: req.method,
+          headers: req.headers,
+          body,
+        });
+        return Response.json(result.data, { status: result.status });
       }
       return new Response("Not found", { status: 404 });
     },
