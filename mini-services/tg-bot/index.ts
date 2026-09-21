@@ -56,6 +56,7 @@ const USER_CLASSES_FILE = join(DATA_DIR, "user_classes.json");
 const USER_SUBGROUPS_FILE = join(DATA_DIR, "user_subgroups.json");
 const ADMINS_FILE = join(DATA_DIR, "admins.json");
 const FOOD_RATINGS_FILE = join(DATA_DIR, "food_ratings.json");
+const REPORTS_FILE = join(DATA_DIR, "reports.json");
 
 // Atomic replacement keeps an interrupted write from truncating a JSON file.
 function writeJsonAtomically(path: string, content: string, encoding: "utf-8") {
@@ -84,6 +85,51 @@ function saveFoodRatingsToDisk() {
     console.error("[tg-bot] Ошибка сохранения food_ratings.json:", error);
   }
 }
+
+interface LocalReport {
+  id: number;
+  name: string;
+  contact: string;
+  message: string;
+  userId?: number;
+  username?: string;
+  className?: string;
+  createdAt: string;
+  formattedTime?: string;
+}
+
+function loadLocalReports(): LocalReport[] {
+  try {
+    if (existsSync(REPORTS_FILE)) {
+      const data = JSON.parse(readFileSync(REPORTS_FILE, "utf-8"));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (error) {
+    console.error("[tg-bot] Ошибка загрузки reports.json:", error);
+  }
+  return [];
+}
+
+function saveLocalReport(report: LocalReport) {
+  try {
+    const list = loadLocalReports();
+    list.unshift(report);
+    if (list.length > 200) list.length = 200;
+    writeJsonAtomically(REPORTS_FILE, JSON.stringify(list, null, 2), "utf-8");
+  } catch (error) {
+    console.error("[tg-bot] Ошибка сохранения reports.json:", error);
+  }
+}
+
+function clearLocalReports() {
+  try {
+    writeJsonAtomically(REPORTS_FILE, JSON.stringify([], null, 2), "utf-8");
+  } catch (error) {
+    console.error("[tg-bot] Ошибка очистки reports.json:", error);
+  }
+}
+
+const waitingReportUserIds = new Set<number>();
 
 let activeBot: Bot | undefined;
 let pollingReady = false;
@@ -903,7 +949,7 @@ export function getMainReplyKeyboard(userClass?: string): Keyboard {
   return new Keyboard()
     .text("📅 Расписание").text("🍱 Столовая").text("⚡ Сейчас").row()
     .text("🍽 Меню").text("🔔 Звонки").text("📌 События").row()
-    .text("🌤 Погода").text(classLabel)
+    .text("🌤 Погода").text("📝 Отправить отчёт").text(classLabel)
     .resized();
 }
 
@@ -1784,8 +1830,33 @@ function main() {
     return ctx.reply("Вы не авторизованы как администратор.");
   });
 
-  // Служебная команда /admin или /sudo
-  bot.command(["admin", "sudo"], async (ctx) => {
+  // Вспомогательная функция формирования панели администратора
+  function getAdminPanelContent() {
+    const keyboard = new InlineKeyboard()
+      .text("🖥️ Сервер (CPU/ОЗУ)", "admin:system")
+      .text("📋 Логи бота (30)", "admin:logs:30")
+      .row()
+      .text("📊 Статистика", "admin:stats")
+      .text("📨 Прочитать репорты", "admin:reports")
+      .row()
+      .text("🔒 Выйти из админки", "admin:unauth");
+
+    const text =
+      "🛡️ <b>Панель администратора «СУНЦ Инфо»</b>\n" +
+      "──────────────────────────\n" +
+      "Вы авторизованы как администратор бота.\n\n" +
+      "<b>Быстрые действия:</b>\n" +
+      "• 🖥️ <code>/system</code> — мониторинг нагрузки (ОЗУ, процессор, аптайм)\n" +
+      "• 📋 <code>/logs [N]</code> — просмотр системного журнала (например, <code>/logs 50</code>)\n" +
+      "• 📊 <code>/stats</code> — статистика школы и активность учеников\n" +
+      "• 📨 <code>/reports</code> — прочитать репорты и обращения пользователей\n" +
+      "• 🔒 <code>/unauth</code> — завершить сессию администратора\n\n" +
+      "🌐 <i>Полная веб-админка с живыми графиками, подробным просмотром учеников и экспортом логов доступна на сайте во вкладке «Статистика».</i>";
+
+    return { text, keyboard };
+  }
+
+  async function replyAdminPanel(ctx: Context) {
     const userId = ctx.from?.id;
     if (!isAdmin(userId)) {
       return ctx.reply(
@@ -1793,26 +1864,15 @@ function main() {
         { parse_mode: "HTML" }
       );
     }
+    const panel = getAdminPanelContent();
+    return ctx.reply(panel.text, { parse_mode: "HTML", reply_markup: panel.keyboard });
+  }
 
-    const keyboard = new InlineKeyboard()
-      .text("🖥️ Сервер (CPU/ОЗУ)", "admin:system")
-      .text("📋 Логи бота (30)", "admin:logs:30")
-      .row()
-      .text("📊 Статистика", "admin:stats")
-      .text("🔒 Выйти из админки", "admin:unauth");
-
-    return ctx.reply(
-      "🛡️ <b>Панель администратора «СУНЦ Инфо»</b>\n" +
-        "──────────────────────────\n" +
-        "Вы авторизованы как администратор бота.\n\n" +
-        "<b>Быстрые действия:</b>\n" +
-        "• 🖥️ <code>/system</code> — мониторинг нагрузки (ОЗУ, процессор, аптайм)\n" +
-        "• 📋 <code>/logs [N]</code> — просмотр системного журнала (например, <code>/logs 50</code>)\n" +
-        "• 📊 <code>/stats</code> — статистика школы и активность учеников\n" +
-        "• 🔒 <code>/unauth</code> — завершить сессию администратора\n\n" +
-        "🌐 <i>Полная веб-админка с живыми графиками, подробным просмотром учеников и экспортом логов доступна на сайте во вкладке «Статистика».</i>",
-      { parse_mode: "HTML", reply_markup: keyboard }
-    );
+  // Служебная команда /admin или /sudo
+  bot.command(["admin", "sudo"], replyAdminPanel);
+  bot.callbackQuery("admin:back", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await replyAdminPanel(ctx);
   });
 
   // Мониторинг нагрузки сервера для администратора
@@ -1904,6 +1964,260 @@ function main() {
       return ctx.reply("🔒 Режим администратора отключён. Вы вернулись в режим обычного пользователя.");
     }
     return ctx.reply("Вы не авторизованы как администратор.");
+  });
+
+  // --- Обратная связь и репорты админам ---
+
+  async function replyReports(ctx: Context) {
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён. Вы не авторизованы как администратор.");
+    }
+
+    let reports: Array<{ id: number | string; name: string; contact: string; message: string; createdAt?: string; createdAtNsk?: string }> = [];
+
+    // Попытка получить свежие репорты из БД портала через API
+    try {
+      const res = await fetch(`${API}/api/feedback`, {
+        headers: {
+          Accept: "application/json",
+          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { items?: any[] };
+        if (Array.isArray(data.items)) {
+          reports = data.items;
+        }
+      }
+    } catch {
+      // Игнорируем сетевую ошибку — обратимся к локальному файлу
+    }
+
+    // Если API недоступен или пуст, используем локально сохранённые репорты
+    if (reports.length === 0) {
+      const local = loadLocalReports();
+      reports = local.map((r) => ({
+        id: r.id,
+        name: r.name || (r.username ? `@${r.username}` : (r.userId ? `ID: ${r.userId}` : "Аноним")),
+        contact: r.contact || (r.className ? `Класс: ${r.className}` : (r.username ? `@${r.username}` : `tg:${r.userId}`)),
+        message: r.message,
+        createdAt: r.createdAt,
+        createdAtNsk: r.formattedTime || formatRelativeOrNskTime(r.createdAt),
+      }));
+    }
+
+    const kb = new InlineKeyboard()
+      .text("🔄 Обновить", "admin:reports")
+      .text("🗑️ Очистить все", "admin:reports:clear_confirm")
+      .row()
+      .text("🔙 В админку", "admin:back");
+
+    if (reports.length === 0) {
+      return ctx.reply(
+        "📨 <b>Репорты и обращения пользователей</b>\n──────────────────────────\n\nСписок обращений пуст. Пока никто не отправлял отчётов.",
+        { parse_mode: "HTML", reply_markup: kb }
+      );
+    }
+
+    const top = reports.slice(0, 10);
+    const lines = [
+      `📨 <b>Репорты и обращения пользователей (${reports.length}):</b>`,
+      "──────────────────────────",
+    ];
+
+    for (const r of top) {
+      const timeStr = r.createdAtNsk || (r.createdAt ? formatRelativeOrNskTime(r.createdAt) : "");
+      lines.push(
+        `• <b>#${r.id}</b> ${timeStr ? `(<code>${esc(timeStr)}</code>)` : ""}`,
+        `  👤 <b>${esc(r.name || "Аноним")}</b> · <i>${esc(r.contact || "—")}</i>`,
+        `  💬 <blockquote>${esc(r.message)}</blockquote>\n`
+      );
+    }
+
+    if (reports.length > 10) {
+      lines.push(`<i>...и ещё ${reports.length - 10} обращений на сайте во вкладке «Репорты и обращения».</i>`);
+    }
+
+    return ctx.reply(lines.join("\n"), {
+      parse_mode: "HTML",
+      reply_markup: kb,
+    });
+  }
+
+  bot.command(["reports", "feedback_list"], replyReports);
+
+  bot.callbackQuery("admin:reports", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await replyReports(ctx);
+  });
+
+  bot.callbackQuery("admin:reports:clear_confirm", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён.");
+    }
+    const kb = new InlineKeyboard()
+      .text("⚠️ Да, очистить", "admin:reports:clear_do")
+      .text("❌ Отмена", "admin:reports");
+    await ctx.reply("⚠️ <b>Вы действительно хотите удалить ВСЕ репорты и обращения?</b>\nЭто действие необратимо.", {
+      parse_mode: "HTML",
+      reply_markup: kb,
+    });
+  });
+
+  bot.callbackQuery("admin:reports:clear_do", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён.");
+    }
+    try {
+      await fetch(`${API}/api/feedback?clear=all`, {
+        method: "DELETE",
+        headers: {
+          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch {
+      // ignore
+    }
+    clearLocalReports();
+    botLogger.audit("FEEDBACK_CLEARED", `All feedback reports cleared by admin ${userId}`);
+    const kb = new InlineKeyboard().text("🔙 В админку", "admin:back");
+    await ctx.reply("🗑️ <b>Все репорты успешно удалены!</b>", {
+      parse_mode: "HTML",
+      reply_markup: kb,
+    });
+  });
+
+  async function handleSendReport(ctx: Context, messageText: string) {
+    const userId = ctx.from?.id;
+    if (userId) {
+      waitingReportUserIds.delete(userId);
+    }
+
+    const trimmed = messageText.trim();
+    if (trimmed.length < 3) {
+      return ctx.reply("⚠️ Текст обращения слишком короткий. Пожалуйста, опишите проблему подробнее.");
+    }
+    if (trimmed.length > 2000) {
+      return ctx.reply("⚠️ Текст обращения слишком длинный (максимум 2000 символов). Пожалуйста, сократите его.");
+    }
+
+    const savedClass = userId ? userClassMap.get(userId) : undefined;
+    const username = ctx.from?.username;
+    const firstName = ctx.from?.first_name ?? "";
+    const lastName = ctx.from?.last_name ? ` ${ctx.from.last_name}` : "";
+    const senderName = (firstName + lastName).trim() || (username ? `@${username}` : (userId ? `ID: ${userId}` : "Ученик СУНЦ"));
+    const contactStr = username ? `@${username}` : (userId ? `tg:${userId}` : "Telegram");
+    const nameWithClass = savedClass ? `${senderName} [${savedClass}]` : senderName;
+
+    // 1. Отправляем в API портала
+    try {
+      await fetch(`${API}/api/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: nameWithClass,
+          contact: contactStr,
+          message: trimmed,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e: any) {
+      botLogger.warn("FEEDBACK", `Не удалось отправить репорт в API: ${e?.message}`);
+    }
+
+    // 2. Сохраняем локально в reports.json
+    saveLocalReport({
+      id: Date.now(),
+      name: nameWithClass,
+      contact: contactStr,
+      message: trimmed,
+      userId: userId ?? 0,
+      username,
+      className: savedClass,
+      createdAt: new Date().toISOString(),
+      formattedTime: formatNskTime(),
+    });
+
+    botLogger.audit("FEEDBACK_SUBMITTED", `Репорт от пользователя ${userId} (@${username || "нет"}) [${savedClass || "нет"}]: ${trimmed.slice(0, 100)}`);
+
+    // 3. Отвечаем пользователю
+    await ctx.reply(
+      "✅ <b>Ваш отчёт / обращение успешно отправлены администрации!</b>\n\n" +
+        "Спасибо за обратную связь. Мы обязательно рассмотрим ваше сообщение.",
+      {
+        parse_mode: "HTML",
+        reply_markup: getMainReplyKeyboard(savedClass),
+      }
+    );
+
+    // 4. Оповещаем верифицированных администраторов
+    const notification =
+      "📨 <b>Новое обращение / отчёт от пользователя!</b>\n" +
+      "──────────────────────────\n" +
+      `👤 <b>Отправитель:</b> ${esc(senderName)} (<code>${userId}</code>)\n` +
+      (username ? `💬 <b>Telegram:</b> @${esc(username)}\n` : "") +
+      (savedClass ? `🏫 <b>Класс:</b> <code>${esc(savedClass)}</code>\n` : "") +
+      `🕒 <b>Время:</b> <code>${formatNskTime()}</code>\n\n` +
+      `📝 <b>Текст обращения:</b>\n<blockquote>${esc(trimmed)}</blockquote>`;
+
+    const adminKb = new InlineKeyboard().text("📨 Прочитать все репорты", "admin:reports");
+
+    for (const adminId of verifiedAdminIds) {
+      if (adminId !== userId) {
+        bot.api.sendMessage(adminId, notification, { parse_mode: "HTML", reply_markup: adminKb }).catch(() => {});
+      }
+    }
+  }
+
+  bot.command(["report", "feedback"], async (ctx) => {
+    const userId = ctx.from?.id;
+    const arg = ctx.match?.trim();
+    if (arg) {
+      return handleSendReport(ctx, arg);
+    }
+    if (userId) {
+      waitingReportUserIds.add(userId);
+    }
+    return ctx.reply(
+      "📝 <b>Обратная связь и репорты об ошибках</b>\n\n" +
+        "Напишите ваше сообщение (описание ошибки, неточность в расписании или пожелание) прямо в чат.\n\n" +
+        "Для отмены отправьте <code>/cancel</code> или нажмите кнопку ниже:",
+      {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard().text("❌ Отменить", "report:cancel"),
+      }
+    );
+  });
+
+  bot.callbackQuery("report:cancel", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "Отправка отменена" });
+    const userId = ctx.from?.id;
+    if (userId) {
+      waitingReportUserIds.delete(userId);
+    }
+    const savedClass = userId ? userClassMap.get(userId) : undefined;
+    await ctx.reply("❌ Отправка отчёта отменена.", {
+      reply_markup: getMainReplyKeyboard(savedClass),
+    });
+  });
+
+  bot.command("cancel", async (ctx) => {
+    const userId = ctx.from?.id;
+    const savedClass = userId ? userClassMap.get(userId) : undefined;
+    if (userId && waitingReportUserIds.has(userId)) {
+      waitingReportUserIds.delete(userId);
+      return ctx.reply("❌ Отправка отчёта отменена.", {
+        reply_markup: getMainReplyKeyboard(savedClass),
+      });
+    }
+    return ctx.reply("Нет активных действий для отмены.");
   });
 
   // Функция формирования статистики бота
@@ -2029,6 +2343,7 @@ function main() {
       "🌙 /counselors — ночные вожатые",
       "ℹ️ /info — контакты и службы школы",
       "🏫 /setclass — сменить свой класс",
+      "📝 /report — отправить отчёт или пожелание",
       "📊 /stats — статистика школы",
       "</blockquote>",
     ];
@@ -2037,6 +2352,9 @@ function main() {
       lines.push(
         "\n<blockquote expandable>",
         "🛡️ <b>Команды администратора:</b>",
+        "• /admin — панель управления администратора",
+        "• /reports — прочитать репорты пользователей",
+        "• /system — мониторинг нагрузки (ОЗУ/ЦПУ)",
         "• /logs [N] — системный журнал (logs/bot.log)",
         "• /unauth — выйти из режима админа",
         "</blockquote>"
@@ -2601,6 +2919,32 @@ function main() {
     const userId = ctx.from?.id;
     const savedClass = userId ? userClassMap.get(userId) : undefined;
 
+    // Перехват отправки отчёта, если пользователь в режиме ввода отчёта
+    if (userId && waitingReportUserIds.has(userId)) {
+      if (text === "❌ Отмена" || text === "/cancel") {
+        waitingReportUserIds.delete(userId);
+        return ctx.reply("❌ Отправка отчёта отменена.", {
+          reply_markup: getMainReplyKeyboard(savedClass),
+        });
+      }
+      return handleSendReport(ctx, text);
+    }
+
+    if (text === "📝 Отправить отчёт" || text === "💬 Отправить отчёт") {
+      if (userId) {
+        waitingReportUserIds.add(userId);
+      }
+      return ctx.reply(
+        "📝 <b>Обратная связь и репорты об ошибках</b>\n\n" +
+          "Напишите ваше сообщение (описание ошибки, неточность в расписании или пожелание) прямо в этот чат.\n\n" +
+          "Для отмены отправьте <code>/cancel</code> или нажмите кнопку ниже:",
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("❌ Отменить", "report:cancel"),
+        }
+      );
+    }
+
     if (text === "🍽 Меню") {
       await ctx.replyWithChatAction("typing");
       const res = await menuText();
@@ -2677,6 +3021,7 @@ function main() {
           { command: "news", description: "📰 Новости школы" },
           { command: "duty", description: "🧹 График дежурств" },
           { command: "counselors", description: "🌙 Ночные вожатые" },
+          { command: "report", description: "📝 Отправить отчёт администраторам" },
           { command: "info", description: "ℹ️ Контакты и службы" },
           { command: "stats", description: "📊 Статистика школы" },
           { command: "help", description: "❓ Справка по командам" },

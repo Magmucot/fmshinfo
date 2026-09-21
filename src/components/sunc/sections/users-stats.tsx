@@ -24,9 +24,20 @@ import {
   Award, Clock, Activity, MessageSquare, CheckCircle2, Lock,
   Terminal, FileText, Copy, Check, Eye, User, Sparkles,
   Download, Pause, Play, AlertCircle, AlertTriangle, Info,
-  Bug, ChevronRight, X, ArrowUpDown, Filter, Cpu, Server, HardDrive
+  Bug, ChevronRight, X, ArrowUpDown, Filter, Cpu, Server, HardDrive,
+  Trash2, Inbox
 } from "lucide-react";
-import { useUsersStats, useAdminLogs, useSystemMetrics, TelegramUserProfile, ParsedLogEntry } from "../api";
+import {
+  useUsersStats,
+  useAdminLogs,
+  useSystemMetrics,
+  useFeedbackList,
+  deleteFeedback,
+  clearAllFeedback,
+  FeedbackItem,
+  TelegramUserProfile,
+  ParsedLogEntry,
+} from "../api";
 import { SectionCard, LoadingBlock, ErrorCard } from "../shared";
 
 /** Форматирование времени по Новосибирску и относительного времени */
@@ -86,7 +97,7 @@ export function UsersStatsSection() {
   const [selectedSubgroup, setSelectedSubgroup] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"active" | "actions" | "class" | "name">("active");
 
-  const [adminSubTab, setAdminSubTab] = useState<"users" | "logs">("users");
+  const [adminSubTab, setAdminSubTab] = useState<"users" | "logs" | "reports">("users");
   const [selectedUser, setSelectedUser] = useState<TelegramUserProfile | null>(null);
   const [logInitialSearch, setLogInitialSearch] = useState<string>("");
 
@@ -95,6 +106,13 @@ export function UsersStatsSection() {
   const bot = data?.bot;
   const web = data?.web;
   const isAdmin = data?.isAdmin ?? false;
+
+  const {
+    data: feedbackData,
+    refetch: refetchReports,
+    isFetching: isFetchingReports,
+  } = useFeedbackList(submittedKey, isAdmin);
+  const reports = feedbackData?.items ?? [];
 
   const totalUsers = bot?.totalUsers ?? 0;
   const activeToday = bot?.activeToday ?? 0;
@@ -452,8 +470,8 @@ export function UsersStatsSection() {
             <ServerHealthMonitor adminKey={submittedKey} />
 
             {/* Переключатель вкладок админ-панели */}
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between border-b pb-3 flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   size="sm"
                   variant={adminSubTab === "users" ? "default" : "outline"}
@@ -475,6 +493,20 @@ export function UsersStatsSection() {
                   <Terminal className="h-3.5 w-3.5" />
                   Консоль логов с временем
                 </Button>
+                <Button
+                  size="sm"
+                  variant={adminSubTab === "reports" ? "default" : "outline"}
+                  onClick={() => setAdminSubTab("reports")}
+                  className="gap-1.5 h-8 text-xs rounded-xl"
+                >
+                  <MessageSquare className="h-3.5 w-3.5 text-amber-500" />
+                  Репорты и обращения
+                  {reports.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 h-4 px-1.5 text-[10px] font-mono bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                      {reports.length}
+                    </Badge>
+                  )}
+                </Button>
               </div>
 
               <div className="text-[11px] text-muted-foreground hidden sm:block">
@@ -486,6 +518,13 @@ export function UsersStatsSection() {
               <AdminLogsConsole
                 adminKey={submittedKey}
                 initialSearch={logInitialSearch}
+              />
+            ) : adminSubTab === "reports" ? (
+              <AdminReportsPanel
+                adminKey={submittedKey}
+                reports={reports}
+                refetchReports={refetchReports}
+                isFetching={isFetchingReports}
               />
             ) : (
               <div className="space-y-4">
@@ -1401,3 +1440,238 @@ function ServerHealthMonitor({ adminKey }: { adminKey: string }) {
     </div>
   );
 }
+
+/** Панель просмотра и управления отчётами и обращениями пользователей */
+function AdminReportsPanel({
+  adminKey,
+  reports,
+  refetchReports,
+  isFetching,
+}: {
+  adminKey: string;
+  reports: FeedbackItem[];
+  refetchReports: () => void;
+  isFetching: boolean;
+}) {
+  const [search, setSearch] = useState("");
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return reports;
+    return reports.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.contact.toLowerCase().includes(q) ||
+        r.message.toLowerCase().includes(q) ||
+        String(r.id).includes(q)
+    );
+  }, [reports, search]);
+
+  const handleDelete = async (id: number) => {
+    if (!confirm(`Удалить отчёт #${id}?`)) return;
+    setDeletingId(id);
+    try {
+      await deleteFeedback(id, adminKey);
+      refetchReports();
+    } catch (err) {
+      alert((err as Error).message || "Ошибка удаления");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (
+      !confirm(
+        "Вы уверены, что хотите удалить ВСЕ обращения и отчёты? Это действие необратимо."
+      )
+    ) {
+      return;
+    }
+    setClearing(true);
+    try {
+      await clearAllFeedback(adminKey);
+      refetchReports();
+    } catch (err) {
+      alert((err as Error).message || "Ошибка очистки");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const copyText = (id: number, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <div className="space-y-4 rounded-2xl border bg-card/60 p-4 backdrop-blur-xs">
+      {/* Шапка управления */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-amber-500" />
+          <h3 className="font-semibold text-sm">Отчёты и обращения пользователей</h3>
+          <Badge variant="outline" className="text-xs font-mono">
+            {filtered.length} из {reports.length}
+          </Badge>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => refetchReports()}
+            disabled={isFetching}
+            className="h-8 text-xs gap-1.5 rounded-xl"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Обновить
+          </Button>
+
+          {reports.length > 0 && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={handleClearAll}
+              disabled={clearing}
+              className="h-8 text-xs gap-1.5 rounded-xl"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Очистить все
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Поиск */}
+      <div className="relative">
+        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Поиск по отправителю, контакту, тексту репорта или #ID..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9 h-9 text-xs rounded-xl"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground text-xs"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Список отчётов */}
+      {filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center rounded-xl border border-dashed bg-muted/20">
+          <Inbox className="h-10 w-10 text-muted-foreground/50 mb-2" />
+          <p className="text-sm font-semibold text-foreground">
+            {search ? "Ничего не найдено по запросу" : "Нет активных отчётов и обращений"}
+          </p>
+          <p className="text-xs text-muted-foreground max-w-sm mt-1">
+            {search
+              ? "Попробуйте изменить поисковый запрос"
+              : "Когда ученики отправят отчёт через Telegram-бота или форму на сайте, обращение сразу появится здесь."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((item) => {
+            const timeInfo = formatDateTimeNsk(item.createdAt);
+            const tgUsername = item.contact.startsWith("@") ? item.contact.slice(1) : null;
+
+            return (
+              <div
+                key={item.id}
+                className="rounded-xl border bg-background/80 p-3.5 transition-colors hover:border-amber-500/40 shadow-2xs"
+              >
+                {/* Верхняя строка карточки */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2 mb-2 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge
+                      variant="secondary"
+                      className="font-mono text-[10px] font-bold px-1.5 py-0 bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                    >
+                      #{item.id}
+                    </Badge>
+                    <span className="font-semibold text-foreground">{item.name}</span>
+                    <span className="text-muted-foreground text-[11px]">({item.contact})</span>
+                    {tgUsername && (
+                      <a
+                        href={`https://t.me/${tgUsername}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 text-[11px] font-medium"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Telegram
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-muted-foreground text-[11px] font-mono"
+                      title={timeInfo.full}
+                    >
+                      {item.formattedTime || timeInfo.full} ({timeInfo.relative})
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(item.id)}
+                      disabled={deletingId === item.id}
+                      className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-500/10 rounded-lg text-xs gap-1"
+                      title="Удалить / закрыть отчёт"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Закрыть
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Содержимое отчёта */}
+                <div className="text-xs leading-relaxed whitespace-pre-wrap bg-muted/30 p-2.5 rounded-lg border border-border/40 font-sans">
+                  {item.message}
+                </div>
+
+                {/* Нижняя панель действий */}
+                <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                  <button
+                    onClick={() => copyText(item.id, item.message)}
+                    className="flex items-center gap-1 hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    {copiedId === item.id ? (
+                      <>
+                        <Check className="h-3 w-3 text-emerald-500" />
+                        <span className="text-emerald-500 font-medium">Скопировано</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3 w-3" />
+                        <span>Копировать текст</span>
+                      </>
+                    )}
+                  </button>
+
+                  <span>
+                    Статус:{" "}
+                    <strong className="text-amber-600 dark:text-amber-400 font-medium">
+                      Новое обращение
+                    </strong>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+

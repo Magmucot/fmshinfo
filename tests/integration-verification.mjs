@@ -266,6 +266,86 @@ try {
     assert.ok(blockedWith429, 'После серии неудачных попыток IP должен быть заблокирован кодом 429');
   }
 
+  // ==========================================
+  // 7. Тестирование /api/feedback (Обратная связь и репорты админам)
+  // ==========================================
+  console.log('\n7️⃣  Проверка обратной связи и репортов (/api/feedback)...');
+  {
+    // 7.1 POST без тела -> 400
+    const emptyPost = await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    assert.equal(emptyPost.status, 400, 'POST без полей должен возвращать 400');
+
+    // 7.2 POST валидного обращения от пользователя
+    const postRes = await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Пётр Сидоров [10-4]',
+        contact: '@petr_sid',
+        message: 'Не работает кнопка выбора параллели в меню',
+      }),
+    });
+    assert.equal(postRes.status, 200, 'POST валидного репорта должен возвращать 200');
+    assert.equal(postRes.body.ok, true);
+    assert.equal(typeof postRes.body.id, 'number');
+    assert.equal(typeof postRes.body.createdAtNsk, 'string');
+    assert.ok(postRes.body.createdAtNsk.includes('NSK'), 'Время репорта должно содержать NSK');
+    const createdReportId = postRes.body.id;
+    console.log(`   ✅ Репорт #${createdReportId} успешно создан: "${postRes.body.message}" [${postRes.body.createdAtNsk}]`);
+
+    // 7.3 GET без ключа администратора -> 401
+    const unauthGet = await api('/api/feedback');
+    assert.equal(unauthGet.status, 401, 'GET репортов без ключа должен возвращать 401');
+
+    // 7.4 GET с ключом администратора -> 200 со списком
+    const authGet = await api('/api/feedback', { headers: { 'X-Admin-Key': ADMIN_KEY } });
+    assert.equal(authGet.status, 200, 'GET репортов с ключом должен возвращать 200');
+    assert.equal(authGet.body.ok, true);
+    assert.ok(Array.isArray(authGet.body.items));
+    const foundReport = authGet.body.items.find(item => item.id === createdReportId);
+    assert.ok(foundReport, 'Созданный репорт должен присутствовать в списке для админа');
+    assert.equal(foundReport.name, 'Пётр Сидоров [10-4]');
+    assert.equal(foundReport.contact, '@petr_sid');
+    assert.equal(foundReport.message, 'Не работает кнопка выбора параллели в меню');
+    assert.ok(foundReport.createdAtNsk.includes('NSK'));
+    console.log(`   ✅ Просмотр репортов админом подтверждён: найдено ${authGet.body.items.length} обращений`);
+
+    // 7.5 DELETE без ключа -> 401
+    const unauthDel = await api(`/api/feedback?id=${createdReportId}`, { method: 'DELETE' });
+    assert.equal(unauthDel.status, 401, 'DELETE репорта без ключа должен возвращать 401');
+
+    // 7.6 DELETE конкретного репорта с ключом -> 200
+    const authDel = await api(`/api/feedback?id=${createdReportId}`, {
+      method: 'DELETE',
+      headers: { 'X-Admin-Key': ADMIN_KEY },
+    });
+    assert.equal(authDel.status, 200, 'DELETE репорта с ключом должен возвращать 200');
+    assert.equal(authDel.body.ok, true);
+
+    // Проверяем, что удалён
+    const afterDelGet = await api('/api/feedback', { headers: { 'X-Admin-Key': ADMIN_KEY } });
+    const stillPresent = afterDelGet.body.items.some(item => item.id === createdReportId);
+    assert.equal(stillPresent, false, 'Удалённый репорт не должен присутствовать в списке');
+    console.log(`   ✅ Удаление репорта #${createdReportId} успешно выполнено и проверено`);
+
+    // 7.7 Очистка всех репортов
+    // Сначала создадим еще один
+    await api('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Тестер', contact: 'tg:111', message: 'Тестовое сообщение' }),
+    });
+    const clearRes = await api('/api/feedback?clear=all', {
+      method: 'DELETE',
+      headers: { 'X-Admin-Key': ADMIN_KEY },
+    });
+    assert.equal(clearRes.status, 200);
+    const afterClearGet = await api('/api/feedback', { headers: { 'X-Admin-Key': ADMIN_KEY } });
+    assert.equal(afterClearGet.body.items.length, 0, 'После очистки список должен быть пуст');
+    console.log('   ✅ Очистка всех репортов (?clear=all) успешно работает');
+  }
+
   console.log('\n🎉 ВСЕ ТЕСТЫ И ПРОВЕРКИ ПРОЙДЕНЫ НА 100%! Система полностью функциональна и защищена.\n');
 } catch (err) {
   console.error('\n❌ Ошибка во время верификации:');

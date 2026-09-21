@@ -155,6 +155,22 @@ export async function adminRequest(
   return { ok: true };
 }
 
+export interface FeedbackItem {
+  id: number;
+  name: string;
+  contact: string;
+  message: string;
+  createdAt: string;
+  formattedTime?: string;
+}
+
+export interface FeedbackListResponse {
+  ok: boolean;
+  items: FeedbackItem[];
+  count: number;
+  error?: string;
+}
+
 /** Обратная связь */
 export async function sendFeedback(name: string, contact: string, message: string): Promise<void> {
   const response = await fetch("/api/feedback", {
@@ -165,6 +181,47 @@ export async function sendFeedback(name: string, contact: string, message: strin
   const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!response.ok || data.ok === false) {
     throw new Error(data.error || "Не удалось отправить сообщение");
+  }
+}
+
+/** Получение списка репортов и обращений для панели администратора */
+export function useFeedbackList(adminKey?: string, enabled = true) {
+  return useQuery<FeedbackListResponse>({
+    queryKey: ["feedbackList", adminKey ?? ""],
+    queryFn: () => api<FeedbackListResponse>("/api/feedback", adminKey),
+    enabled: Boolean(adminKey) && enabled,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+/** Удаление отчёта по ID */
+export async function deleteFeedback(id: number, adminKey: string): Promise<void> {
+  const response = await fetch(`/api/feedback?id=${id}`, {
+    method: "DELETE",
+    headers: {
+      "X-Admin-Key": adminKey,
+      Accept: "application/json",
+    },
+  });
+  const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || "Не удалось удалить отчёт");
+  }
+}
+
+/** Очистить все отчёты */
+export async function clearAllFeedback(adminKey: string): Promise<void> {
+  const response = await fetch("/api/feedback?clear=all", {
+    method: "DELETE",
+    headers: {
+      "X-Admin-Key": adminKey,
+      Accept: "application/json",
+    },
+  });
+  const data = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || "Не удалось очистить отчёты");
   }
 }
 
