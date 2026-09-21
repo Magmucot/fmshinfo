@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import os from "os";
 import { readFileSync, existsSync } from "fs";
-import { isAdminRequest, getClientIp } from "@/lib/server/auth";
+import {
+  isAdminRequest,
+  getClientIp,
+  recordFailedAdminAttempt,
+  resetFailedAdminAttempts,
+  isIpRateLimited,
+} from "@/lib/server/auth";
 import { portalLogger } from "@/lib/server/logger";
 
 export const dynamic = "force-dynamic";
@@ -84,13 +90,25 @@ function formatUptime(seconds: number): string {
  */
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
+
+  if (isIpRateLimited(ip)) {
+    portalLogger.warn("SECURITY", `Blocked rate-limited request to /api/admin/system from IP: ${ip}`);
+    return NextResponse.json(
+      { ok: false, error: "Слишком много неудачных попыток. Повторите позже." },
+      { status: 429 }
+    );
+  }
+
   if (!isAdminRequest(request)) {
+    recordFailedAdminAttempt(ip);
     portalLogger.warn("SECURITY", `Unauthorized GET /api/admin/system attempt from IP: ${ip}`);
     return NextResponse.json(
       { ok: false, error: "Доступ запрещён: неверный ключ администратора" },
       { status: 403 }
     );
   }
+
+  resetFailedAdminAttempts(ip);
 
   try {
     const mem = getMemInfo();

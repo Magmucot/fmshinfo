@@ -1770,22 +1770,85 @@ function main() {
     }
 
     const keyboard = new InlineKeyboard()
+      .text("🖥️ Сервер (CPU/ОЗУ)", "admin:system")
       .text("📋 Логи бота (30)", "admin:logs:30")
-      .text("📊 Статистика", "admin:stats")
       .row()
-      .text("🔒 Выйти из режима админа", "admin:unauth");
+      .text("📊 Статистика", "admin:stats")
+      .text("🔒 Выйти из админки", "admin:unauth");
 
     return ctx.reply(
       "🛡️ <b>Панель администратора «СУНЦ Инфо»</b>\n" +
         "──────────────────────────\n" +
         "Вы авторизованы как администратор бота.\n\n" +
-        "<b>Доступные функции:</b>\n" +
+        "<b>Быстрые действия:</b>\n" +
+        "• 🖥️ <code>/system</code> — мониторинг нагрузки (ОЗУ, процессор, аптайм)\n" +
         "• 📋 <code>/logs [N]</code> — просмотр системного журнала (например, <code>/logs 50</code>)\n" +
         "• 📊 <code>/stats</code> — статистика школы и активность учеников\n" +
         "• 🔒 <code>/unauth</code> — завершить сессию администратора\n\n" +
-        "<i>Нажмите кнопку ниже или используйте команды:</i>",
+        "🌐 <i>Полная веб-админка с живыми графиками, подробным просмотром учеников и экспортом логов доступна на сайте во вкладке «Статистика».</i>",
       { parse_mode: "HTML", reply_markup: keyboard }
     );
+  });
+
+  // Мониторинг нагрузки сервера для администратора
+  async function replySystem(ctx: Context) {
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён. Вы не авторизованы как администратор.");
+    }
+
+    try {
+      const res = await fetch(`${API}/api/admin/system`, {
+        headers: {
+          Accept: "application/json",
+          ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = (await res.json()) as {
+        ok: boolean;
+        memory: { percent: number; formatted: { total: string; free: string; used: string } };
+        cpu: { percent: number; cores: number; model: string; loadavg: number[] };
+        uptime: { formattedSystem: string; formattedProcess: string };
+      };
+
+      const lines = [
+        "🖥️ <b>Состояние сервера «СУНЦ Инфо»</b>\n",
+        "<blockquote>",
+        `⚙️ <b>ЦПУ:</b> ${esc(data.cpu.model)} (${data.cpu.cores} ядер)`,
+        `📊 <b>Загрузка CPU:</b> <code>${data.cpu.percent}%</code>`,
+        `📈 <b>Load Average:</b> <code>${data.cpu.loadavg.join(", ")}</code>`,
+        "</blockquote>\n",
+        "<blockquote>",
+        `🧠 <b>Оперативная память (ОЗУ):</b> <code>${data.memory.percent}%</code>`,
+        `• Использовано: <b>${data.memory.formatted.used}</b> / ${data.memory.formatted.total}`,
+        `• Доступно: <b>${data.memory.formatted.free}</b>`,
+        "</blockquote>\n",
+        "<blockquote>",
+        `⏱️ <b>Аптайм ОС:</b> ${esc(data.uptime.formattedSystem)}`,
+        `⏱️ <b>Аптайм веб-сервера:</b> ${esc(data.uptime.formattedProcess)}`,
+        "</blockquote>",
+      ];
+
+      return ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
+    } catch (err) {
+      return ctx.reply(
+        `⚠️ <b>Не удалось получить метрики сервера:</b> <code>${esc((err as Error).message)}</code>\n` +
+          `Убедитесь, что API портала запущено на <code>${esc(API)}</code> и задан <code>ADMIN_KEY</code>.`,
+        { parse_mode: "HTML" }
+      );
+    }
+  }
+
+  bot.command(["system", "server"], replySystem);
+  bot.callbackQuery("admin:system", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await replySystem(ctx);
   });
 
   bot.callbackQuery("admin:logs:30", async (ctx) => {

@@ -20,7 +20,7 @@ interface AttemptRecord {
   resetAt: number;
 }
 const failedAttempts = new Map<string, AttemptRecord>();
-const MAX_FAILED_ATTEMPTS = 8;
+const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export function recordFailedAdminAttempt(ip: string): boolean {
