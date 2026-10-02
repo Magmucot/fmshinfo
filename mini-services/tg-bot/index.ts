@@ -17,11 +17,14 @@ import { scheduleButtonDay } from "./schedule-day";
 import { changeSavedClass, isSavedClass } from "./preferences";
 import { FoodRatingBook, FoodRatingTarget, formatFoodRating } from "./food-ratings";
 import { Bot, Context, InlineKeyboard, Keyboard } from "grammy";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "fs";
+import { readFileSync, existsSync, mkdirSync } from "fs";
+import { promises as fsPromises } from "fs";
 import { join } from "path";
 import crypto from "crypto";
 import { botLogger, getRecentBotLogs } from "./logger";
 import { dispatchApi, handleApiRoute } from "../../src/lib/server/dispatcher";
+import { BoundedTTLMap, BoundedTTLSet } from "./ttl-cache";
+import { CacheWarmer } from "./cache-warmer";
 
 // Загрузка .env из корня проекта если не подхвачен Bun
 function loadRootEnv() {
@@ -59,11 +62,17 @@ const ADMINS_FILE = join(DATA_DIR, "admins.json");
 const FOOD_RATINGS_FILE = join(DATA_DIR, "food_ratings.json");
 const REPORTS_FILE = join(DATA_DIR, "reports.json");
 
-// Atomic replacement keeps an interrupted write from truncating a JSON file.
-function writeJsonAtomically(path: string, content: string, encoding: "utf-8") {
-  const temporary = `${path}.tmp`;
-  writeFileSync(temporary, content, { encoding, mode: 0o600 });
-  renameSync(temporary, path);
+// Asynchronous atomic file writing using unique temp files and rename
+async function writeJsonAtomicallyAsync(filePath: string, data: unknown): Promise<void> {
+  const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  const json = JSON.stringify(data, null, 2);
+  try {
+    await fsPromises.writeFile(tmpPath, json, { encoding: "utf-8", mode: 0o600 });
+    await fsPromises.rename(tmpPath, filePath);
+  } catch (err) {
+    await fsPromises.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 }
 
 function loadFoodRatings(): FoodRatingBook {
@@ -79,12 +88,41 @@ function loadFoodRatings(): FoodRatingBook {
 
 const foodRatings = loadFoodRatings();
 
-function saveFoodRatingsToDisk() {
+let ratingsDirty = false;
+let saveRatingsTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSaveFoodRatings() {
+  ratingsDirty = true;
+  if (saveRatingsTimeout) return;
+  saveRatingsTimeout = setTimeout(() => {
+    saveRatingsTimeout = null;
+    void saveFoodRatingsToDiskAsync();
+  }, 5000);
+  saveRatingsTimeout.unref();
+}
+
+async function saveFoodRatingsToDiskAsync(): Promise<void> {
+  if (!ratingsDirty) return;
+  ratingsDirty = false;
   try {
-    writeJsonAtomically(FOOD_RATINGS_FILE, JSON.stringify(foodRatings.toJSON(), null, 2), "utf-8");
+    ensureStateDir();
+    await writeJsonAtomicallyAsync(FOOD_RATINGS_FILE, foodRatings.toJSON());
   } catch (error) {
+    ratingsDirty = true;
     console.error("[tg-bot] Ошибка сохранения food_ratings.json:", error);
   }
+}
+
+async function flushFoodRatingsToDisk(): Promise<void> {
+  if (saveRatingsTimeout) {
+    clearTimeout(saveRatingsTimeout);
+    saveRatingsTimeout = null;
+  }
+  await saveFoodRatingsToDiskAsync();
+}
+
+function saveFoodRatingsToDisk() {
+  void flushFoodRatingsToDisk();
 }
 
 interface LocalReport {
@@ -99,43 +137,54 @@ interface LocalReport {
   formattedTime?: string;
 }
 
+let localReportsCache: LocalReport[] | null = null;
+
 function loadLocalReports(): LocalReport[] {
+  if (localReportsCache !== null) {
+    return localReportsCache;
+  }
   try {
     if (existsSync(REPORTS_FILE)) {
       const data = JSON.parse(readFileSync(REPORTS_FILE, "utf-8"));
-      if (Array.isArray(data)) return data;
+      if (Array.isArray(data)) {
+        localReportsCache = data;
+        return localReportsCache;
+      }
     }
   } catch (error) {
     console.error("[tg-bot] Ошибка загрузки reports.json:", error);
   }
-  return [];
+  localReportsCache = [];
+  return localReportsCache;
 }
 
-function saveLocalReport(report: LocalReport) {
+async function saveLocalReport(report: LocalReport): Promise<void> {
   try {
     const list = loadLocalReports();
     list.unshift(report);
     if (list.length > 200) list.length = 200;
-    writeJsonAtomically(REPORTS_FILE, JSON.stringify(list, null, 2), "utf-8");
+    await writeJsonAtomicallyAsync(REPORTS_FILE, list);
   } catch (error) {
     console.error("[tg-bot] Ошибка сохранения reports.json:", error);
   }
 }
 
-function clearLocalReports() {
+async function clearLocalReports(): Promise<void> {
   try {
-    writeJsonAtomically(REPORTS_FILE, JSON.stringify([], null, 2), "utf-8");
+    localReportsCache = [];
+    await writeJsonAtomicallyAsync(REPORTS_FILE, []);
   } catch (error) {
     console.error("[tg-bot] Ошибка очистки reports.json:", error);
   }
 }
 
-const waitingReportUserIds = new Set<number>();
+const waitingReportUserIds = new BoundedTTLSet<number>(1000, 5 * 60 * 1000);
 
 let activeBot: Bot | undefined;
 let pollingReady = false;
 let stopping = false;
 let stopHealth: (() => void) | undefined;
+let cacheWarmer: CacheWarmer | undefined;
 
 async function shutdown(exitCode = 0) {
   if (stopping) return;
@@ -143,15 +192,24 @@ async function shutdown(exitCode = 0) {
   pollingReady = false;
   const deadline = setTimeout(() => process.exit(exitCode || 1), 20_000);
   deadline.unref();
-  if (saveUsersTimeout) clearTimeout(saveUsersTimeout);
-  saveUsersToDisk();
-  saveFoodRatingsToDisk();
+
+  cacheWarmer?.stop();
+
+  await Promise.all([
+    flushUsersToDisk(),
+    flushFoodRatingsToDisk(),
+    botLogger.flush(),
+  ]);
+
   try {
     if (activeBot?.isRunning()) await activeBot.stop();
   } finally {
     // Persist changes from an update that was still being handled at SIGTERM.
-    saveUsersToDisk();
-    saveFoodRatingsToDisk();
+    await Promise.all([
+      flushUsersToDisk(),
+      flushFoodRatingsToDisk(),
+      botLogger.flush(),
+    ]);
     stopHealth?.();
     process.exit(exitCode);
   }
@@ -186,9 +244,9 @@ function loadVerifiedAdmins() {
 }
 loadVerifiedAdmins();
 
-function saveVerifiedAdmins() {
+async function saveVerifiedAdmins() {
   try {
-    writeJsonAtomically(ADMINS_FILE, JSON.stringify(Array.from(verifiedAdminIds), null, 2), "utf-8");
+    await writeJsonAtomicallyAsync(ADMINS_FILE, Array.from(verifiedAdminIds));
   } catch (e) {
     console.error("[tg-bot] Ошибка сохранения admins.json:", e);
   }
@@ -208,7 +266,7 @@ interface RateLimitEntry {
   violationsCount: number;
 }
 
-const rateLimitMap = new Map<number, RateLimitEntry>();
+const rateLimitMap = new BoundedTTLMap<number, RateLimitEntry>(5000, 5 * 60 * 1000);
 
 export function checkRateLimit(
   userId: number,
@@ -371,9 +429,30 @@ function loadAllUsers() {
 
 loadAllUsers();
 
-/** Сохранение пользователей на диск (в users.json, user_classes.json и user_subgroups.json) */
-function saveUsersToDisk() {
+function ensureStateDir() {
+  if (!existsSync(DATA_DIR)) {
+    mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
+
+let usersDirty = false;
+let saveUsersTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSaveUsers() {
+  usersDirty = true;
+  if (saveUsersTimeout) return;
+  saveUsersTimeout = setTimeout(() => {
+    saveUsersTimeout = null;
+    void saveUsersToDiskAsync();
+  }, 10_000);
+  saveUsersTimeout.unref();
+}
+
+async function saveUsersToDiskAsync(): Promise<void> {
+  if (!usersDirty) return;
+  usersDirty = false;
   try {
+    ensureStateDir();
     const usersObj: Record<string, BotUserRecord> = {};
     const classesObj: Record<string, string> = {};
     const subgroupsObj: Record<string, { subgroup?: number | null; englishGroup?: string | null }> = {};
@@ -390,21 +469,28 @@ function saveUsersToDisk() {
         };
       }
     }
-    writeJsonAtomically(USERS_FILE, JSON.stringify(usersObj, null, 2), "utf-8");
-    writeJsonAtomically(USER_CLASSES_FILE, JSON.stringify(classesObj, null, 2), "utf-8");
-    writeJsonAtomically(USER_SUBGROUPS_FILE, JSON.stringify(subgroupsObj, null, 2), "utf-8");
+    await Promise.all([
+      writeJsonAtomicallyAsync(USERS_FILE, usersObj),
+      writeJsonAtomicallyAsync(USER_CLASSES_FILE, classesObj),
+      writeJsonAtomicallyAsync(USER_SUBGROUPS_FILE, subgroupsObj),
+    ]);
   } catch (e) {
+    usersDirty = true;
     console.error("[tg-bot] Ошибка сохранения users.json:", e);
   }
 }
 
-let saveUsersTimeout: ReturnType<typeof setTimeout> | null = null;
-function debouncedSaveUsers() {
-  if (saveUsersTimeout) return;
-  saveUsersTimeout = setTimeout(() => {
-    saveUsersToDisk();
+async function flushUsersToDisk(): Promise<void> {
+  if (saveUsersTimeout) {
+    clearTimeout(saveUsersTimeout);
     saveUsersTimeout = null;
-  }, 2500);
+  }
+  await saveUsersToDiskAsync();
+}
+
+/** Сохранение пользователей на диск (в users.json, user_classes.json и user_subgroups.json) */
+function saveUsersToDisk() {
+  void flushUsersToDisk();
 }
 
 /**
@@ -448,6 +534,7 @@ function trackUserInteraction(ctx: Context, action: string, newClass?: string) {
   };
 
   userProfiles.set(id, updatedRecord);
+  usersDirty = true;
   debouncedSaveUsers();
 
   // Логирование действия в audit.log и bot.log
@@ -470,6 +557,7 @@ function saveUserClass(userId: number, className: string, ctx?: Context) {
         subgroup: userSubgroupMap.get(userId) ?? null,
         englishGroup: userEnglishMap.get(userId) ?? null,
       });
+      usersDirty = true;
       debouncedSaveUsers();
     } else {
       trackUserInteraction(ctx, "setclass", className);
@@ -488,7 +576,8 @@ function saveUserClass(userId: number, className: string, ctx?: Context) {
       firstSeenAt: existing?.firstSeenAt ?? nowStr,
       lastActiveAt: nowStr,
     });
-    saveUsersToDisk();
+    usersDirty = true;
+    debouncedSaveUsers();
   }
 }
 
@@ -632,7 +721,17 @@ interface CanteenScheduleResponse {
 // а размер кэша ограничен: поисковые запросы пользователей не могут занять всю память.
 const apiCache = new Map<string, { data: unknown; expiresAt: number }>();
 const apiInFlight = new Map<string, Promise<unknown | null>>();
-const MAX_API_CACHE_ENTRIES = 128;
+const MAX_API_CACHE_ENTRIES = 512;
+
+function getEndpointDefaultTtl(path: string): number {
+  if (path.startsWith("/api/schedule") || path.startsWith("/api/menu") || path.startsWith("/api/canteen")) {
+    return 60 * 60 * 1000; // 60 минут
+  }
+  if (path.startsWith("/api/bells")) {
+    return 12 * 60 * 60 * 1000; // 12 часов
+  }
+  return 30_000;
+}
 
 function putApiCache(path: string, data: unknown, ttlMs: number) {
   const now = Date.now();
@@ -693,11 +792,15 @@ async function fetchPortalApi<T>(path: string, ttlMs: number): Promise<T | null>
   }
 }
 
-async function api<T>(path: string, ttlMs = 30_000): Promise<T | null> {
+async function api<T>(path: string, customTtlMs?: number): Promise<T | null> {
+  const ttlMs = customTtlMs ?? getEndpointDefaultTtl(path);
   const now = Date.now();
   const cached = apiCache.get(path);
-  if (cached && cached.expiresAt > now) {
-    return cached.data as T;
+  if (cached) {
+    if (cached.expiresAt > now) {
+      return cached.data as T;
+    }
+    apiCache.delete(path);
   }
 
   const running = apiInFlight.get(path);
@@ -973,7 +1076,8 @@ export function getMainReplyKeyboard(userClass?: string): Keyboard {
   return new Keyboard()
     .text("📅 Расписание").text("🍱 Столовая").text("⚡ Сейчас").row()
     .text("🍽 Меню").text("🔔 Звонки").text("📌 События").row()
-    .text("🌤 Погода").text("📝 Отправить отчёт").text(classLabel)
+    .text("🌤 Погода").text(classLabel).row()
+    .text("📝 Отправить репорт")
     .resized();
 }
 
@@ -1737,6 +1841,13 @@ function main() {
   const bot = new Bot(TOKEN || "000:placeholder");
   activeBot = bot;
 
+  cacheWarmer = new CacheWarmer({
+    apiFetcher: (path, ttlMs) => api(path, ttlMs),
+    getActiveClasses: () => Array.from(new Set(userClassMap.values())),
+    logger: botLogger,
+  });
+  cacheWarmer.start();
+
   // 1. Глобальная защита от флуда и DDoS (Anti-Flood)
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
@@ -1871,7 +1982,7 @@ function main() {
 
     if (isKeyValid) {
       verifiedAdminIds.add(userId);
-      saveVerifiedAdmins();
+      await saveVerifiedAdmins();
       botLogger.audit("AUTH_SUCCESS", `User ${userId} (@${username}) successfully authenticated as admin`);
       return ctx.reply(
         "🛡️ <b>Успешная авторизация!</b>\n" +
@@ -1901,7 +2012,7 @@ function main() {
     }
     if (verifiedAdminIds.has(userId)) {
       verifiedAdminIds.delete(userId);
-      saveVerifiedAdmins();
+      await saveVerifiedAdmins();
       botLogger.audit("AUTH_REVOKE", `User ${userId} revoked admin privileges`);
       return ctx.reply("🔒 Режим администратора отключён. Вы вернулись в режим обычного пользователя.");
     }
@@ -1915,7 +2026,9 @@ function main() {
       .text("📋 Логи бота (30)", "admin:logs:30")
       .row()
       .text("📊 Статистика", "admin:stats")
-      .text("📨 Прочитать репорты", "admin:reports")
+      .text("📨 Репорты", "admin:reports")
+      .row()
+      .text("📢 Рассылка", "admin:broadcast")
       .row()
       .text("🔒 Выйти из админки", "admin:unauth");
 
@@ -1924,6 +2037,7 @@ function main() {
       "──────────────────────────\n" +
       "Вы авторизованы как администратор бота.\n\n" +
       "<b>Быстрые действия:</b>\n" +
+      "• 📢 <code>/broadcast</code> — сделать рассылку сообщений ученикам\n" +
       "• 🖥️ <code>/system</code> — мониторинг нагрузки (ОЗУ, процессор, аптайм)\n" +
       "• 📋 <code>/logs [N]</code> — просмотр системного журнала (например, <code>/logs 50</code>)\n" +
       "• 📊 <code>/stats</code> — статистика школы и активность учеников\n" +
@@ -2019,7 +2133,7 @@ function main() {
     if (!isAdmin(userId)) {
       return ctx.reply("🔒 Доступ запрещён. Вы не авторизованы как администратор.");
     }
-    const lines = getRecentBotLogs(30);
+    const lines = await getRecentBotLogs(30);
     const codeBlock = lines.join("\n");
     await ctx.reply(
       `📋 <b>Журнал событий бота (последние ${lines.length} строк):</b>\n\n<pre><code>${esc(codeBlock)}</code></pre>`,
@@ -2036,11 +2150,344 @@ function main() {
     }
     if (verifiedAdminIds.has(userId)) {
       verifiedAdminIds.delete(userId);
-      saveVerifiedAdmins();
+      await saveVerifiedAdmins();
       botLogger.audit("AUTH_REVOKE", `User ${userId} revoked admin privileges`);
       return ctx.reply("🔒 Режим администратора отключён. Вы вернулись в режим обычного пользователя.");
     }
     return ctx.reply("Вы не авторизованы как администратор.");
+  });
+
+  // --- Рассылка сообщений от имени бота ---
+
+  interface BotBroadcastSession {
+    target: "all" | "class" | "user";
+    targetClass?: string;
+    targetUserId?: string;
+    step: "target" | "grade" | "class" | "user" | "text" | "confirm";
+    text?: string;
+    pinMessage: boolean;
+  }
+
+  const adminBroadcastSessions = new BoundedTTLMap<number, BotBroadcastSession>(50, 15 * 60 * 1000);
+
+  function getBroadcastTargetKeyboard() {
+    return new InlineKeyboard()
+      .text("📢 Всем пользователям", "bcast:target:all")
+      .row()
+      .text("🏫 Классу школы", "bcast:target:class")
+      .row()
+      .text("👤 Конкретному пользователю (ID)", "bcast:target:user")
+      .row()
+      .text("🔙 Назад в админку", "admin:back");
+  }
+
+  function getBroadcastGradeKeyboard() {
+    return new InlineKeyboard()
+      .text("8 класс", "bcast:grade:8")
+      .text("9 класс", "bcast:grade:9")
+      .row()
+      .text("10 класс", "bcast:grade:10")
+      .text("11 класс", "bcast:grade:11")
+      .row()
+      .text("🔙 Назад к выбору", "bcast:target:back");
+  }
+
+  function getBroadcastClassKeyboard(grade: string) {
+    const kb = new InlineKeyboard();
+    const classes: string[] = [];
+    for (const [_, cls] of userClassMap.entries()) {
+      if (cls && cls.startsWith(`${grade}-`) && !classes.includes(cls)) {
+        classes.push(cls);
+      }
+    }
+    if (classes.length === 0) {
+      if (grade === "8") classes.push("8-1", "8-2", "8-3");
+      else if (grade === "9") classes.push("9-1", "9-2", "9-3", "9-4", "9-5");
+      else if (grade === "10") classes.push("10-1", "10-2", "10-3", "10-4", "10-5", "10-6", "10-7", "10-8", "10-9");
+      else if (grade === "11") classes.push("11-1", "11-2", "11-3", "11-4", "11-5", "11-6", "11-7", "11-8", "11-9", "11-10", "11-11", "11-12");
+    }
+    classes.sort((a, b) => {
+      const numA = Number(a.split("-")[1] || 0);
+      const numB = Number(b.split("-")[1] || 0);
+      return numA - numB;
+    });
+
+    let col = 0;
+    for (const cls of classes) {
+      kb.text(cls, `bcast:class:${cls}`);
+      col++;
+      if (col % 4 === 0) kb.row();
+    }
+    if (col % 4 !== 0) kb.row();
+    kb.text("🔙 К параллелям", "bcast:target:class");
+    return kb;
+  }
+
+  function getBroadcastConfirmKeyboard(pin: boolean) {
+    return new InlineKeyboard()
+      .text("🚀 Подтвердить и отправить", "bcast:confirm")
+      .row()
+      .text(
+        pin ? "📌 Закрепить: ДА (нажмите чтобы выкл)" : "📌 Закрепить: НЕТ (нажмите чтобы вкл)",
+        "bcast:toggle_pin"
+      )
+      .row()
+      .text("❌ Отменить рассылку", "bcast:cancel");
+  }
+
+  async function startBroadcastFlow(ctx: Context) {
+    const userId = ctx.from?.id;
+    if (!userId || !isAdmin(userId)) {
+      return ctx.reply("🔒 Доступ запрещён. Вы не авторизованы как администратор.");
+    }
+
+    adminBroadcastSessions.set(userId, {
+      target: "all",
+      step: "target",
+      pinMessage: false,
+    });
+
+    const total = userProfiles.size;
+    const msg =
+      "📢 <b>Рассылка сообщений от имени бота</b>\n" +
+      "──────────────────────────\n" +
+      `Всего пользователей в базе: <b>${total}</b>\n\n` +
+      "Выберите целевую аудиторию для рассылки:";
+
+    return ctx.reply(msg, {
+      parse_mode: "HTML",
+      reply_markup: getBroadcastTargetKeyboard(),
+    });
+  }
+
+  bot.command("broadcast", startBroadcastFlow);
+  bot.callbackQuery("admin:broadcast", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await startBroadcastFlow(ctx);
+  });
+
+  bot.callbackQuery("bcast:target:back", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    adminBroadcastSessions.set(userId, { target: "all", step: "target", pinMessage: false });
+    await ctx.editMessageText(
+      "📢 <b>Рассылка сообщений от имени бота</b>\n──────────────────────────\nВыберите целевую аудиторию для рассылки:",
+      { parse_mode: "HTML", reply_markup: getBroadcastTargetKeyboard() }
+    );
+  });
+
+  bot.callbackQuery("bcast:target:all", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const session = adminBroadcastSessions.get(userId) || { target: "all", step: "target", pinMessage: false };
+    session.target = "all";
+    session.step = "text";
+    adminBroadcastSessions.set(userId, session);
+
+    await ctx.editMessageText(
+      `📢 <b>Рассылка: Всем пользователям</b>\nАдресатов: <b>${userProfiles.size} чел.</b>\n\n` +
+      "✏️ <b>Отправьте следующим сообщением текст для рассылки.</b>\n" +
+      "<i>Поддерживается HTML-разметка Telegram (жирный, курсив, код, ссылки).</i>\n\n" +
+      "Для отмены отправьте /cancel или нажмите кнопку:",
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "bcast:cancel") }
+    );
+  });
+
+  bot.callbackQuery("bcast:target:class", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const session = adminBroadcastSessions.get(userId) || { target: "class", step: "grade", pinMessage: false };
+    session.target = "class";
+    session.step = "grade";
+    adminBroadcastSessions.set(userId, session);
+
+    await ctx.editMessageText(
+      "🏫 <b>Рассылка классу</b>\n──────────────────────────\nВыберите параллель:",
+      { parse_mode: "HTML", reply_markup: getBroadcastGradeKeyboard() }
+    );
+  });
+
+  bot.callbackQuery(/^bcast:grade:(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const grade = ctx.match[1];
+    const session = adminBroadcastSessions.get(userId) || { target: "class", step: "class", pinMessage: false };
+    session.step = "class";
+    adminBroadcastSessions.set(userId, session);
+
+    await ctx.editMessageText(
+      `🏫 <b>Рассылка параллели ${grade} классов</b>\n──────────────────────────\nВыберите класс:`,
+      { parse_mode: "HTML", reply_markup: getBroadcastClassKeyboard(grade) }
+    );
+  });
+
+  bot.callbackQuery(/^bcast:class:(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const cls = ctx.match[1];
+    const session = adminBroadcastSessions.get(userId) || { target: "class", step: "text", pinMessage: false };
+    session.target = "class";
+    session.targetClass = cls;
+    session.step = "text";
+    adminBroadcastSessions.set(userId, session);
+
+    let countInCls = 0;
+    for (const [_, c] of userClassMap.entries()) {
+      if (c === cls) countInCls++;
+    }
+
+    await ctx.editMessageText(
+      `🏫 <b>Рассылка классу ${cls}</b>\nАдресатов в боте: <b>${countInCls} чел.</b>\n\n` +
+      "✏️ <b>Отправьте следующим сообщением текст для рассылки.</b>\n" +
+      "<i>Поддерживается HTML-разметка Telegram.</i>\n\n" +
+      "Для отмены отправьте /cancel или нажмите кнопку:",
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "bcast:cancel") }
+    );
+  });
+
+  bot.callbackQuery("bcast:target:user", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const session = adminBroadcastSessions.get(userId) || { target: "user", step: "user", pinMessage: false };
+    session.target = "user";
+    session.step = "user";
+    adminBroadcastSessions.set(userId, session);
+
+    await ctx.editMessageText(
+      "👤 <b>Рассылка конкретному пользователю</b>\n──────────────────────────\n" +
+      "Отправьте числовой <b>Telegram ID</b> ученика в ответном сообщении.\n\n" +
+      "Для отмены отправьте /cancel или нажмите кнопку:",
+      { parse_mode: "HTML", reply_markup: new InlineKeyboard().text("❌ Отмена", "bcast:cancel") }
+    );
+  });
+
+  bot.callbackQuery("bcast:cancel", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (userId) adminBroadcastSessions.delete(userId);
+    await ctx.editMessageText("❌ <b>Рассылка отменена.</b>", {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("🛡️ Панель админа", "admin:back"),
+    });
+  });
+
+  bot.callbackQuery("bcast:toggle_pin", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const session = adminBroadcastSessions.get(userId);
+    if (!session || !session.text) return;
+
+    session.pinMessage = !session.pinMessage;
+    adminBroadcastSessions.set(userId, session);
+
+    const targetDesc =
+      session.target === "all"
+        ? `Всем пользователям (${userProfiles.size} чел.)`
+        : session.target === "class"
+        ? `Классу ${session.targetClass}`
+        : `Пользователю ID ${session.targetUserId}`;
+
+    const previewMsg =
+      "📢 <b>Предпросмотр рассылки:</b>\n" +
+      `<b>Кому:</b> ${targetDesc}\n` +
+      `<b>Закрепление:</b> ${session.pinMessage ? "📌 ДА" : "НЕТ"}\n` +
+      "──────────────────────────\n\n" +
+      session.text +
+      "\n\n──────────────────────────\n" +
+      "Подтвердите отправку сообщений:";
+
+    await ctx.editMessageText(previewMsg, {
+      parse_mode: "HTML",
+      reply_markup: getBroadcastConfirmKeyboard(session.pinMessage),
+    });
+  });
+
+  bot.callbackQuery("bcast:confirm", async (ctx) => {
+    await ctx.answerCallbackQuery({ text: "🚀 Запуск рассылки..." });
+    const userId = ctx.from?.id;
+    if (!isAdmin(userId)) return;
+    const session = adminBroadcastSessions.get(userId);
+    if (!session || !session.text) {
+      return ctx.reply("⚠️ Сессия рассылки не найдена или истекла. Запустите /broadcast заново.");
+    }
+
+    adminBroadcastSessions.delete(userId);
+    await ctx.editMessageText(
+      "⏳ <b>Рассылка выполняется...</b>\nПожалуйста, подождите завершения отправки пакетов.",
+      { parse_mode: "HTML" }
+    );
+
+    try {
+      let data: any = null;
+      const inProc = await handleApiRoute("/api/admin/broadcast", {
+        method: "POST",
+        headers: { "X-Admin-Key": ADMIN_KEY },
+        body: {
+          target: session.target,
+          targetClass: session.targetClass,
+          targetUserId: session.targetUserId,
+          text: session.text,
+          pinMessage: session.pinMessage,
+          parseMode: "HTML",
+        },
+      });
+
+      if (inProc.status === 200) {
+        data = inProc.data;
+      } else {
+        const res = await fetch(`${API}/api/admin/broadcast`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(ADMIN_KEY ? { "X-Admin-Key": ADMIN_KEY } : {}),
+          },
+          body: JSON.stringify({
+            target: session.target,
+            targetClass: session.targetClass,
+            targetUserId: session.targetUserId,
+            text: session.text,
+            pinMessage: session.pinMessage,
+            parseMode: "HTML",
+          }),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData?.error || `HTTP ${res.status}`);
+        }
+        data = await res.json();
+      }
+
+      const reportLines = [
+        "✅ <b>Рассылка завершена!</b>",
+        "──────────────────────────",
+        `• <b>Статус:</b> <code>${data.status}</code>`,
+        `• <b>Доставлено:</b> <b>${data.sent}</b> из ${data.total}`,
+        data.blocked > 0 ? `• <b>Заблокировали бота:</b> <b>${data.blocked}</b>` : "",
+        data.failed - data.blocked > 0 ? `• <b>Ошибки отправки:</b> <b>${data.failed - data.blocked}</b>` : "",
+        `• <b>ID рассылки:</b> <code>${data.broadcastId}</code>`,
+      ].filter(Boolean);
+
+      await ctx.reply(reportLines.join("\n"), {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard().text("🛡️ Панель админа", "admin:back"),
+      });
+    } catch (err) {
+      await ctx.reply(
+        `❌ <b>Ошибка при выполнении рассылки:</b>\n<code>${esc((err as Error).message)}</code>`,
+        {
+          parse_mode: "HTML",
+          reply_markup: new InlineKeyboard().text("🛡️ Панель админа", "admin:back"),
+        }
+      );
+    }
   });
 
   // --- Обратная связь и репорты админам ---
@@ -2175,7 +2622,7 @@ function main() {
     } catch {
       // ignore
     }
-    clearLocalReports();
+    await clearLocalReports();
     botLogger.audit("FEEDBACK_CLEARED", `All feedback reports cleared by admin ${userId}`);
     const kb = new InlineKeyboard().text("🔙 В админку", "admin:back");
     await ctx.reply("🗑️ <b>Все репорты успешно удалены!</b>", {
@@ -2233,7 +2680,7 @@ function main() {
     }
 
     // 2. Сохраняем локально в reports.json
-    saveLocalReport({
+    await saveLocalReport({
       id: Date.now(),
       name: nameWithClass,
       contact: contactStr,
@@ -2267,7 +2714,7 @@ function main() {
       `🕒 <b>Время:</b> <code>${formatNskTime()}</code>\n\n` +
       `📝 <b>Текст обращения:</b>\n<blockquote>${esc(trimmed)}</blockquote>`;
 
-    const adminKb = new InlineKeyboard().text("📨 Прочитать все репорты", "admin:reports");
+    const adminKb = new InlineKeyboard().text("📨 Репорты", "admin:reports");
 
     for (const adminId of verifiedAdminIds) {
       if (adminId !== userId) {
@@ -2410,7 +2857,7 @@ function main() {
 
     const countArg = parseInt(ctx.match?.trim() || "20", 10);
     const limit = isNaN(countArg) ? 20 : Math.min(Math.max(countArg, 5), 50);
-    const lines = getRecentBotLogs(limit);
+    const lines = await getRecentBotLogs(limit);
     const codeBlock = lines.join("\n");
     const formatted = [
       `📋 <b>Журнал событий бота (последние ${lines.length} строк):</b>\n`,
@@ -2840,7 +3287,8 @@ function main() {
       userSubgroupMap.set(userId, Number(choice));
       await ctx.answerCallbackQuery(`Выбрана ${choice}-я подгруппа! ✅`).catch(() => {});
     }
-    saveUsersToDisk();
+    usersDirty = true;
+    debouncedSaveUsers();
 
     const res = await getSubgroupMenu(userId, className);
     try {
@@ -2889,7 +3337,8 @@ function main() {
     const selected = opts[idx];
     if (selected) {
       userEnglishMap.set(userId, selected.id);
-      saveUsersToDisk();
+      usersDirty = true;
+      debouncedSaveUsers();
     }
     const res = await getEnglishMenu(userId, className);
     try {
@@ -2912,7 +3361,8 @@ function main() {
     if (!userId) return;
 
     userEnglishMap.delete(userId);
-    saveUsersToDisk();
+    usersDirty = true;
+    debouncedSaveUsers();
     await ctx.answerCallbackQuery("Английский: показываются все группы ✅").catch(() => {});
 
     const res = await getEnglishMenu(userId, className);
@@ -3010,7 +3460,7 @@ function main() {
 
     const score = Number(scoreRaw);
     const summary = foodRatings.vote(target, userId, score);
-    saveFoodRatingsToDisk();
+    debouncedSaveFoodRatings();
     botLogger.audit("FOOD_RATING", `User ${userId} rated ${target.date} / ${target.mealType} / ${target.dishName}: ${score}`);
     await ctx.answerCallbackQuery(`Оценка ${score}/5 сохранена`).catch(() => {});
 
@@ -3066,18 +3516,83 @@ function main() {
     const userId = ctx.from?.id;
     const savedClass = userId ? userClassMap.get(userId) : undefined;
 
-    // Перехват отправки отчёта, если пользователь в режиме ввода отчёта
-    if (userId && waitingReportUserIds.has(userId)) {
+    // Отмена режима отправки отчёта
+    if (userId && waitingReportUserIds.has(userId) && (text === "❌ Отмена" || text === "/cancel")) {
+      waitingReportUserIds.delete(userId);
+      return ctx.reply("❌ Отправка отчёта отменена.", {
+        reply_markup: getMainReplyKeyboard(savedClass),
+      });
+    }
+
+    // Отмена режима рассылки или ввод текста/ID для рассылки администратором
+    if (userId && adminBroadcastSessions.has(userId)) {
       if (text === "❌ Отмена" || text === "/cancel") {
-        waitingReportUserIds.delete(userId);
-        return ctx.reply("❌ Отправка отчёта отменена.", {
+        adminBroadcastSessions.delete(userId);
+        return ctx.reply("❌ Рассылка отменена.", {
           reply_markup: getMainReplyKeyboard(savedClass),
         });
       }
-      return handleSendReport(ctx, text);
+
+      const session = adminBroadcastSessions.get(userId)!;
+      if (session.step === "user") {
+        const targetId = text.trim();
+        if (!/^\d+$/.test(targetId)) {
+          return ctx.reply("⚠️ Некорректный ID. Отправьте числовой Telegram ID пользователя (или /cancel для отмены):");
+        }
+        session.targetUserId = targetId;
+        session.step = "text";
+        adminBroadcastSessions.set(userId, session);
+        return ctx.reply(
+          `👤 <b>Получатель: ID <code>${targetId}</code></b>\n\n` +
+          "✏️ <b>Отправьте следующим сообщением текст для рассылки.</b>\n" +
+          "<i>Поддерживается HTML-разметка Telegram.</i>",
+          {
+            parse_mode: "HTML",
+            reply_markup: new InlineKeyboard().text("❌ Отмена", "bcast:cancel"),
+          }
+        );
+      }
+
+      if (session.step === "text") {
+        session.text = text;
+        session.step = "confirm";
+        adminBroadcastSessions.set(userId, session);
+
+        let targetDesc = `Всем пользователям (${userProfiles.size} чел.)`;
+        if (session.target === "class") targetDesc = `Классу ${session.targetClass}`;
+        else if (session.target === "user") targetDesc = `Пользователю ID ${session.targetUserId}`;
+
+        const previewMsg =
+          "📢 <b>Предпросмотр рассылки:</b>\n" +
+          `<b>Кому:</b> ${targetDesc}\n` +
+          `<b>Закрепить:</b> ${session.pinMessage ? "📌 ДА" : "НЕТ"}\n` +
+          "──────────────────────────\n\n" +
+          text +
+          "\n\n──────────────────────────\n" +
+          "Подтвердите отправку сообщений:";
+
+        return ctx.reply(previewMsg, {
+          parse_mode: "HTML",
+          reply_markup: getBroadcastConfirmKeyboard(session.pinMessage),
+        });
+      }
     }
 
-    if (text === "📝 Отправить отчёт" || text === "💬 Отправить отчёт") {
+    const lowerText = text.toLowerCase();
+    const isReportAction =
+      text === "📝 Отправить репорт" ||
+      text === "📝 Отправить отчёт" ||
+      text === "📝 Отправить отчет" ||
+      text === "💬 Отправить отчёт" ||
+      text === "💬 Отправить отчет" ||
+      text === "📝 Сообщить об ошибке" ||
+      lowerText === "отправить репорт" ||
+      lowerText === "отправить репорты" ||
+      lowerText === "отправить отчет" ||
+      lowerText === "отправить отчёт" ||
+      lowerText === "сообщить об ошибке";
+
+    if (isReportAction) {
       if (userId) {
         waitingReportUserIds.add(userId);
       }
@@ -3090,6 +3605,26 @@ function main() {
           reply_markup: new InlineKeyboard().text("❌ Отменить", "report:cancel"),
         }
       );
+    }
+
+    // Если пользователь нажал другую кнопку меню во время ожидания ввода отчёта — отменяем ожидание
+    const knownMenuButtons = [
+      "📅 Расписание",
+      "🍱 Столовая",
+      "⚡ Сейчас",
+      "🍽 Меню",
+      "🔔 Звонки",
+      "📌 События",
+      "📌 Мероприятия",
+      "🌤 Погода",
+      "🏫 Выбрать класс",
+    ];
+    if (userId && waitingReportUserIds.has(userId)) {
+      if (knownMenuButtons.includes(text) || text.startsWith("🏫 Класс:")) {
+        waitingReportUserIds.delete(userId);
+      } else {
+        return handleSendReport(ctx, text);
+      }
     }
 
     if (text === "🍽 Меню") {

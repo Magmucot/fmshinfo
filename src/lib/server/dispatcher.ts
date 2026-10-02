@@ -23,7 +23,12 @@ import {
 } from "./canteenSchedule";
 import { SCHOOL_INFO } from "./sources";
 import { ensureSeedData } from "./seed";
-import { feedbackPayload } from "./payloads";
+import { feedbackPayload, broadcastPayload } from "./payloads";
+import {
+  executeBroadcast,
+  getBroadcastHistory,
+  getBroadcastAudienceStats,
+} from "./broadcast";
 import {
   isAdminRequest,
   getClientIp,
@@ -419,6 +424,51 @@ export async function handleApiRoute(
           },
         },
       };
+    }
+
+    // 14. /api/admin/broadcast
+    if (pathname === "/api/admin/broadcast") {
+      if (!checkAdminAuth(headers)) {
+        return { status: 403, data: { ok: false, error: "Доступ запрещён: неверный ключ администратора" } };
+      }
+      if (method === "GET") {
+        const limit = Math.min(Math.max(Number(params.get("limit") || 50), 1), 200);
+        const history = getBroadcastHistory(limit);
+        const audience = await getBroadcastAudienceStats();
+        return {
+          status: 200,
+          data: {
+            ok: true,
+            timestamp: new Date().toISOString(),
+            audience,
+            history,
+          },
+        };
+      }
+      if (method === "POST") {
+        const parsed = broadcastPayload.safeParse(options.body);
+        if (!parsed.success) {
+          const issueMsg = parsed.error.issues.map((i) => i.message).join("; ");
+          return {
+            status: 400,
+            data: { ok: false, error: issueMsg || "Некорректные параметры рассылки" },
+          };
+        }
+        const result = await executeBroadcast(parsed.data);
+        return {
+          status: 200,
+          data: {
+            ok: true,
+            broadcastId: result.broadcastId,
+            sent: result.sent,
+            failed: result.failed,
+            blocked: result.blocked,
+            total: result.total,
+            status: result.status,
+            timestamp: result.timestamp,
+          },
+        };
+      }
     }
 
     return { status: 404, data: { ok: false, error: `Not found: ${pathname}` } };

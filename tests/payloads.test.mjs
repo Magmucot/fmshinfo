@@ -1,6 +1,30 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { telegramPayload, webPayload, feedbackPayload } from '../src/lib/server/payloads.ts';
+import { telegramPayload, webPayload, feedbackPayload, broadcastPayload } from '../src/lib/server/payloads.ts';
+
+test('broadcastPayload validates targeting and message bounds', () => {
+  const allValid = { target: 'all', text: '<b>Внимание!</b> Изменение расписания.' };
+  assert.equal(broadcastPayload.safeParse(allValid).success, true);
+
+  const classValid = { target: 'class', targetClass: '10-4', text: 'Урок физики в ауд. 201', pinMessage: true };
+  assert.equal(broadcastPayload.safeParse(classValid).success, true);
+
+  const userValid = { target: 'user', targetUserId: 1573047506, text: 'Личное уведомление' };
+  const parsedUser = broadcastPayload.parse(userValid);
+  assert.equal(parsedUser.targetUserId, '1573047506');
+
+  // Class target requires valid targetClass
+  assert.equal(broadcastPayload.safeParse({ target: 'class', text: 'Hello' }).success, false);
+  assert.equal(broadcastPayload.safeParse({ target: 'class', targetClass: 'invalid-class', text: 'Hello' }).success, false);
+
+  // User target requires valid targetUserId
+  assert.equal(broadcastPayload.safeParse({ target: 'user', text: 'Hello' }).success, false);
+
+  // Empty or overly long text rejected
+  assert.equal(broadcastPayload.safeParse({ target: 'all', text: '   ' }).success, false);
+  assert.equal(broadcastPayload.safeParse({ target: 'all', text: 'a'.repeat(4097) }).success, false);
+});
+
 
 test('partial Telegram updates preserve omitted fields and explicit clears', () => {
   const partial = telegramPayload.parse({ id: 123, action: 'sync' });

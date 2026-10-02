@@ -33,3 +33,25 @@ export const feedbackPayload = z.object({
   contact: z.string().trim().min(1).max(200),
   message: z.string().trim().min(1).max(4000),
 });
+
+export const broadcastPayload = z.object({
+  target: z.enum(["all", "class", "user"]),
+  targetClass: z.string().trim().regex(/^\d{1,2}-\d{1,2}$/).optional().nullable(),
+  targetUserId: z.union([
+    z.number().int().positive().safe().transform(String),
+    z.string().regex(/^[1-9]\d{0,15}$/).refine(value => Number.isSafeInteger(Number(value))),
+  ]).optional().nullable(),
+  text: z.string().trim().min(1, "Текст сообщения не может быть пустым").max(4096, "Превышена максимальная длина сообщения (4096 символов)"),
+  parseMode: z.enum(["HTML", "Markdown", "MarkdownV2"]).default("HTML").optional(),
+  pinMessage: z.boolean().default(false).optional(),
+}).refine(data => {
+  if (data.target === "class" && !data.targetClass) return false;
+  if (data.target === "user" && !data.targetUserId) return false;
+  return true;
+}, {
+  message: "Для выбранного типа рассылки необходимо указать класс или ID пользователя",
+  path: ["targetClass"],
+});
+
+export type BroadcastPayload = z.infer<typeof broadcastPayload>;
+

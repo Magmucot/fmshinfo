@@ -363,5 +363,92 @@ export function useSystemMetrics(adminKey?: string, enabled = true) {
   });
 }
 
+export interface BroadcastPayload {
+  target: "all" | "class" | "user";
+  targetClass?: string | null;
+  targetUserId?: string | null;
+  text: string;
+  parseMode?: "HTML" | "Markdown" | "MarkdownV2";
+  pinMessage?: boolean;
+}
+
+export interface BroadcastResult {
+  ok: boolean;
+  broadcastId: string;
+  sent: number;
+  failed: number;
+  blocked: number;
+  total: number;
+  timestamp: string;
+  status: "completed" | "partial" | "failed";
+  error?: string;
+}
+
+export interface BroadcastHistoryItem {
+  id: string;
+  timestamp: string;
+  timestampNsk: string;
+  target: "all" | "class" | "user";
+  targetClass?: string | null;
+  targetUserId?: string | null;
+  text: string;
+  pinMessage: boolean;
+  parseMode: string;
+  sent: number;
+  failed: number;
+  blocked: number;
+  total: number;
+  status: "completed" | "partial" | "failed";
+}
+
+export interface BroadcastAudienceStats {
+  totalUsers: number;
+  withClassCount: number;
+  byClass: Record<string, number>;
+  byGrade: Record<string, number>;
+  topClasses: Array<{ className: string; count: number }>;
+}
+
+export interface BroadcastHistoryResponse {
+  ok: boolean;
+  timestamp: string;
+  audience: BroadcastAudienceStats;
+  history: BroadcastHistoryItem[];
+  error?: string;
+}
+
+/** Отправка рассылки через Telegram Bot API */
+export async function sendBroadcast(
+  payload: BroadcastPayload,
+  adminKey: string
+): Promise<BroadcastResult> {
+  const response = await fetch("/api/admin/broadcast", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Key": adminKey,
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = (await response.json().catch(() => ({}))) as BroadcastResult;
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || `Ошибка рассылки (${response.status})`);
+  }
+  return data;
+}
+
+/** Получение истории рассылок и статистики аудитории */
+export function useBroadcastHistory(adminKey?: string, enabled = true) {
+  return useQuery<BroadcastHistoryResponse>({
+    queryKey: ["broadcastHistory", adminKey ?? ""],
+    queryFn: () => api<BroadcastHistoryResponse>("/api/admin/broadcast", adminKey),
+    enabled: Boolean(adminKey) && enabled,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+
 
 

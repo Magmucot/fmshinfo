@@ -25,7 +25,7 @@ import {
   Terminal, FileText, Copy, Check, Eye, User, Sparkles,
   Download, Pause, Play, AlertCircle, AlertTriangle, Info,
   Bug, ChevronRight, X, ArrowUpDown, Filter, Cpu, Server, HardDrive,
-  Trash2, Inbox
+  Trash2, Inbox, Send
 } from "lucide-react";
 import {
   useUsersStats,
@@ -39,6 +39,7 @@ import {
   ParsedLogEntry,
 } from "../api";
 import { SectionCard, LoadingBlock, ErrorCard } from "../shared";
+import { AdminBroadcastPanel } from "./admin-broadcast";
 
 /** Форматирование времени по Новосибирску и относительного времени */
 function formatDateTimeNsk(dateStr?: string | Date | null): {
@@ -97,7 +98,7 @@ export function UsersStatsSection() {
   const [selectedSubgroup, setSelectedSubgroup] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"active" | "actions" | "class" | "name">("active");
 
-  const [adminSubTab, setAdminSubTab] = useState<"users" | "logs" | "reports">("users");
+  const [adminSubTab, setAdminSubTab] = useState<"users" | "logs" | "reports" | "broadcast">("users");
   const [selectedUser, setSelectedUser] = useState<TelegramUserProfile | null>(null);
   const [logInitialSearch, setLogInitialSearch] = useState<string>("");
 
@@ -507,6 +508,15 @@ export function UsersStatsSection() {
                     </Badge>
                   )}
                 </Button>
+                <Button
+                  size="sm"
+                  variant={adminSubTab === "broadcast" ? "default" : "outline"}
+                  onClick={() => setAdminSubTab("broadcast")}
+                  className="gap-1.5 h-8 text-xs rounded-xl"
+                >
+                  <Send className="h-3.5 w-3.5 text-blue-500" />
+                  📢 Рассылка
+                </Button>
               </div>
 
               <div className="text-[11px] text-muted-foreground hidden sm:block">
@@ -525,6 +535,11 @@ export function UsersStatsSection() {
                 reports={reports}
                 refetchReports={refetchReports}
                 isFetching={isFetchingReports}
+              />
+            ) : adminSubTab === "broadcast" ? (
+              <AdminBroadcastPanel
+                adminKey={submittedKey}
+                recentUsers={recentUsers}
               />
             ) : (
               <div className="space-y-4">

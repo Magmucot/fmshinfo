@@ -16,6 +16,8 @@
     "test:auth": "node --experimental-strip-types --test tests/auth.test.mjs",
     "test:unit": "node --experimental-strip-types --test tests/auth.test.mjs tests/payloads.test.mjs tests/bot-preferences.test.mjs tests/food-ratings.test.mjs",
     "test:dispatcher": "bun test tests/in-process-api.test.mjs",
+    "test:broadcast": "npx tsx --test tests/broadcast.test.mjs",
+    "test:keyboard": "npx tsx --test tests/bot-keyboard.test.mjs",
     "test:api": "node --env-file=.env tests/profile-api.mjs",
     "test:verify": "node --env-file=.env tests/integration-verification.mjs",
     "bot:dev": "cd mini-services/tg-bot && bun run dev",
