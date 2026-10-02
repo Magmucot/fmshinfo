@@ -655,7 +655,8 @@ interface DutyResponse {
 interface CounselorsResponse {
   ok: boolean;
   count: number;
-  items: Array<{ id: number; date: string; dormitory: string; counselorName: string; phone: string | null; floor: string | null }>;
+  items?: Array<{ id: number; date: string; dormitory: string; counselorName: string; phone: string | null; floor: string | null }>;
+  counselors?: Array<{ id: number; date: string; dormitory: string; counselorName: string; phone: string | null; floor: string | null }>;
 }
 interface InfoResponse {
   ok: boolean;
@@ -1722,7 +1723,7 @@ export async function weatherText(): Promise<string> {
     ...quoteLines,
   ];
 
-  if (data.forecast.length) {
+  if (data.forecast?.length) {
     const forecastLines = ["<b>Прогноз на ближайшие дни:</b>"];
     for (const f of data.forecast.slice(0, 3)) {
       forecastLines.push(`• <b>${esc(f.day)}:</b> <code>${f.tempMin ?? "—"}…${f.tempMax ?? "—"}°C</code>, ${esc(f.description)}`);
@@ -1736,7 +1737,7 @@ export async function weatherText(): Promise<string> {
 export async function eventsText(classFilter?: string): Promise<string> {
   const data = await api<EventsResponse>("/api/events");
   if (!data) return "⚠️ Мероприятия временно недоступны.";
-  if (!data.days.length) return "<blockquote>📌 Ближайших мероприятий в календаре школы не запланировано.</blockquote>";
+  if (!data.days?.length) return "<blockquote>📌 Ближайших мероприятий в календаре школы не запланировано.</blockquote>";
 
   const lines = [
     `📌 <b>Мероприятия школы</b>${classFilter ? ` · класс <b>${esc(classFilter)}</b>` : ""}\n`,
@@ -1766,7 +1767,7 @@ export async function eventsText(classFilter?: string): Promise<string> {
 /** Новости школы → HTML */
 export async function newsText(limit = 6): Promise<string> {
   const data = await api<NewsResponse>(`/api/news?limit=${limit}`);
-  if (!data || !data.items.length) return "<blockquote>📰 Новости школы временно недоступны.</blockquote>";
+  if (!data?.items?.length) return "<blockquote>📰 Новости школы временно недоступны.</blockquote>";
 
   const lines = [
     "📰 <b>Новости СУНЦ НГУ</b>\n",
@@ -1785,7 +1786,7 @@ export async function newsText(limit = 6): Promise<string> {
 /** Дежурства → HTML */
 export async function dutyText(): Promise<string> {
   const data = await api<DutyResponse>("/api/duty");
-  if (!data || !data.items.length) return "<blockquote>🧹 Данные о дежурствах на сегодня пока не внесены.</blockquote>";
+  if (!data?.items?.length) return "<blockquote>🧹 Данные о дежурствах на сегодня пока не внесены.</blockquote>";
 
   const lines = ["🧹 <b>График дежурств на сегодня</b>\n"];
   const dutyItems: string[] = [];
@@ -1800,11 +1801,12 @@ export async function dutyText(): Promise<string> {
 /** Вожатые → HTML */
 export async function counselorsText(): Promise<string> {
   const data = await api<CounselorsResponse>("/api/counselors");
-  if (!data || !data.items.length) return "<blockquote>🌙 График ночных вожатых пока не внесён.</blockquote>";
+  const items = data?.items ?? data?.counselors;
+  if (!items || !items.length) return "<blockquote>🌙 График ночных вожатых пока не внесён.</blockquote>";
 
   const lines = ["🌙 <b>Ночные вожатые в общежитиях</b>\n"];
   const cLines: string[] = [];
-  for (const c of data.items) {
+  for (const c of items) {
     const phone = c.phone ? ` · 📞 <code>${esc(c.phone)}</code>` : "";
     const floor = c.floor ? ` <i>(${esc(c.floor)})</i>` : "";
     cLines.push(`• <b>${esc(c.dormitory)}</b>${floor}: <b>${esc(c.counselorName)}</b>${phone}`);
@@ -1840,6 +1842,19 @@ export async function infoText(): Promise<string> {
 function main() {
   const bot = new Bot(TOKEN || "000:placeholder");
   activeBot = bot;
+
+  // Глобальный обработчик ошибок grammY (предотвращает аварийную остановку бота)
+  bot.catch((err) => {
+    const ctx = err.ctx;
+    const updateId = ctx?.update?.update_id;
+    botLogger.error("BOT", `Error handling update ${updateId}: ${err.message ?? err.error}`, err.error);
+    console.error(`[tg-bot] Ошибка обработки update ${updateId}:`, err.message ?? err.error);
+    if (ctx?.callbackQuery) {
+      ctx.answerCallbackQuery({ text: "⚠️ Произошла ошибка. Попробуйте снова.", show_alert: true }).catch(() => {});
+    } else if (ctx?.chat) {
+      ctx.reply("⚠️ Произошла ошибка при обработке команды. Попробуйте позже.", { parse_mode: "HTML" }).catch(() => {});
+    }
+  });
 
   cacheWarmer = new CacheWarmer({
     apiFetcher: (path, ttlMs) => api(path, ttlMs),
@@ -3403,7 +3418,7 @@ function main() {
   bot.callbackQuery(/^rate:menu:(\d{8})$/, async (ctx) => {
     const dateToken = ctx.match[1];
     const data = await getMenuForRating(dateToken);
-    if (!data?.meals.length) {
+    if (!data?.meals?.length) {
       return ctx.answerCallbackQuery({ text: "Меню изменилось или больше недоступно. Откройте /menu ещё раз.", show_alert: true }).catch(() => {});
     }
 

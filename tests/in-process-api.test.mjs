@@ -30,3 +30,20 @@ test('in-process dispatcher rejects unauthorized admin requests', async () => {
   const res = await handleApiRoute('/api/admin/system');
   assert.equal(res.status, 403);
 });
+
+test('in-process dispatcher handles /api/counselors correctly', async () => {
+  const res = await handleApiRoute('/api/counselors');
+  assert.equal(res.status, 200);
+  assert.equal(res.data.ok, true);
+  assert.ok(Array.isArray(res.data.items), 'res.data.items should be an array');
+  assert.ok(Array.isArray(res.data.counselors), 'res.data.counselors should be an array');
+  assert.equal(typeof res.data.count, 'number');
+});
+
+test('in-process dispatcher handles /api/duty correctly', async () => {
+  const res = await handleApiRoute('/api/duty');
+  assert.equal(res.status, 200);
+  assert.equal(res.data.ok, true);
+  assert.ok(Array.isArray(res.data.items), 'res.data.items should be an array');
+  assert.equal(typeof res.data.count, 'number');
+});

@@ -75,12 +75,12 @@ test('rate-limiting blocks brute force after repeated failures', () => {
   resetFailedAdminAttempts(testIp);
   assert.equal(isIpRateLimited(testIp), false);
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 9; i++) {
     recordFailedAdminAttempt(testIp);
   }
   assert.equal(isIpRateLimited(testIp), false);
 
-  recordFailedAdminAttempt(testIp); // 5th attempt
+  recordFailedAdminAttempt(testIp); // 10th attempt
   assert.equal(isIpRateLimited(testIp), true);
 
   resetFailedAdminAttempts(testIp);

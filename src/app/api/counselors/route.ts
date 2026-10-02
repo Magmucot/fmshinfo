@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
       where: date ? { date } : undefined,
       orderBy: [{ date: "asc" }, { dormitory: "asc" }],
     });
-    return NextResponse.json({ ok: true, items, count: items.length });
+    return NextResponse.json({ ok: true, items, counselors: items, count: items.length });
   } catch (error) {
     return NextResponse.json({ ok: false, error: (error as Error).message }, { status: 500 });
   }

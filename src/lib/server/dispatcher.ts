@@ -289,7 +289,7 @@ export async function handleApiRoute(
           where: date ? { date } : undefined,
           orderBy: [{ date: "asc" }, { dormitory: "asc" }],
         });
-        return { status: 200, data: { ok: true, counselors: items, count: items.length } };
+        return { status: 200, data: { ok: true, items, counselors: items, count: items.length } };
       }
       if (method === "POST") {
         if (!checkAdminAuth(headers)) {
@@ -300,6 +300,17 @@ export async function handleApiRoute(
           ? await db.nightCounselor.update({ where: { id: body.id }, data: body })
           : await db.nightCounselor.create({ data: body });
         return { status: 200, data: { ok: true, entry } };
+      }
+      if (method === "DELETE") {
+        if (!checkAdminAuth(headers)) {
+          return { status: 401, data: { ok: false, error: "Неверный X-Admin-Key" } };
+        }
+        const id = Number(params.get("id"));
+        if (!Number.isInteger(id)) {
+          return { status: 400, data: { ok: false, error: "Некорректный id" } };
+        }
+        await db.nightCounselor.delete({ where: { id } });
+        return { status: 200, data: { ok: true } };
       }
     }
 
