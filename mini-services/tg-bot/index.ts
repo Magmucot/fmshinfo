@@ -1055,11 +1055,11 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
       keyboard.text(`${next.replace(/\.20\d\d$/, "")} ▶`, `menu:${next}`);
     }
     keyboard.row();
-    keyboard.text("🍱 График смен", "canteen:info");
+    keyboard.text("🍱 График смен", `canteen:info:${data.date}`);
     hasNavigation = true;
   } else {
     keyboard.text(isToday ? "• Сегодня •" : "📅 Сегодня", "menu:today");
-    keyboard.text("🍱 График смен", "canteen:info");
+    keyboard.text("🍱 График смен", `canteen:info:${data.date}`);
     hasNavigation = true;
   }
 
@@ -1139,12 +1139,21 @@ export async function bellsText(): Promise<string> {
   return lines.join("\n");
 }
 
+export interface CanteenNavContext {
+  backType?: "sched" | "menu";
+  backGroup?: string;
+  backDate?: string;
+}
+
 /** Расписание столовой и смен питания (из фото rasp.jpg) */
-export async function canteenText(className?: string): Promise<{ text: string; keyboard?: InlineKeyboard }> {
+export async function canteenText(
+  className?: string,
+  navContext?: CanteenNavContext
+): Promise<{ text: string; keyboard: InlineKeyboard }> {
   const data = await api<CanteenScheduleResponse>(
     `/api/canteen/schedule${className ? `?class=${encodeURIComponent(className)}` : ""}`
   );
-  if (!data) return { text: "⚠️ График столовой временно недоступен." };
+  if (!data) return { text: "⚠️ График столовой временно недоступен.", keyboard: new InlineKeyboard() };
 
   const status = data.currentStatus;
   const quoteLines = [
@@ -1208,11 +1217,25 @@ export async function canteenText(className?: string): Promise<{ text: string; k
 
   lines.push(`<blockquote expandable>ℹ️ <i>${esc(data.footnote ?? "Самые точные часы — у дежурного администратора")}</i></blockquote>`);
 
+  const navSuffix = navContext?.backType === "sched" && (navContext.backGroup || className)
+    ? `:sched:${encodeURIComponent(navContext.backGroup || className || "")}`
+    : navContext?.backType === "menu"
+    ? `:menu:${encodeURIComponent(navContext.backDate || "today")}`
+    : "";
+
   const keyboard = new InlineKeyboard()
-    .text("1-я смена (8, 11)", "canteen:shift:1")
-    .text("2-я смена (10)", "canteen:shift:2").row()
-    .text("3-я смена (9, 11-10)", "canteen:shift:3")
-    .text("Все смены", "canteen:shift:all");
+    .text("1-я смена (8, 11)", `canteen:shift:1${navSuffix}`)
+    .text("2-я смена (10)", `canteen:shift:2${navSuffix}`).row()
+    .text("3-я смена (9, 11-10)", `canteen:shift:3${navSuffix}`)
+    .text("Все смены", `canteen:shift:all${navSuffix}`);
+
+  if (navContext?.backType === "sched" && (navContext.backGroup || className)) {
+    keyboard.row().text("◀ Назад к расписанию", `sched:${navContext.backGroup || className}:today`);
+  } else if (navContext?.backType === "menu") {
+    keyboard.row().text("◀ Назад к меню", `menu:${navContext.backDate || "today"}`);
+  } else if (className) {
+    keyboard.row().text("📅 К расписанию класса", `sched:${className}:today`);
+  }
 
   return { text: lines.join("\n"), keyboard };
 }
@@ -1262,7 +1285,7 @@ function buildScheduleKeyboard(
   }
 
   keyboard
-    .text("🍱 Столовая", `canteen:class:${group}`)
+    .text("🍱 Столовая", `canteen:class:${group}:sched`)
     .text("🏫 Сменить класс", "pickclass");
 
   return keyboard;
@@ -2663,34 +2686,71 @@ function main() {
   });
 
   // Callback query: запрос меню смены столовой
-  bot.callbackQuery(/^canteen:class:(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^canteen:class:([^:]+)(?::(sched))?$/, async (ctx) => {
     const className = ctx.match[1];
+    const fromSched = ctx.match[2] === "sched";
     await ctx.answerCallbackQuery().catch(() => {});
-    const res = await canteenText(className);
+    const res = await canteenText(
+      className,
+      fromSched ? { backType: "sched", backGroup: className } : undefined
+    );
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     } catch (e: any) {
-      if (!e?.message?.includes("message is not modified")) {
+      if (e?.message?.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "График питания уже открыт 👍" }).catch(() => {});
+      } else {
         botLogger.error("CANTEEN_CB", "Failed to edit message", e);
       }
     }
   });
 
-  // Callback query: переключение смен столовой
-  bot.callbackQuery(/^canteen:shift:(.+)$/, async (ctx) => {
-    const shiftArg = ctx.match[1];
+  // Callback query: открытие смен столовой из меню (/menu)
+  bot.callbackQuery(/^canteen:info(?::(.*))?$/, async (ctx) => {
+    const backDate = ctx.match[1];
+    const userId = ctx.from?.id;
+    const savedClass = userId ? userClassMap.get(userId) : undefined;
     await ctx.answerCallbackQuery().catch(() => {});
+    const res = await canteenText(savedClass, { backType: "menu", backDate: backDate || undefined });
+    try {
+      await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
+    } catch (e: any) {
+      if (e?.message?.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "График питания уже открыт 👍" }).catch(() => {});
+      } else {
+        botLogger.error("CANTEEN_INFO_CB", "Failed to edit message", e);
+      }
+    }
+  });
+
+  // Callback query: переключение смен столовой
+  bot.callbackQuery(/^canteen:shift:([^:]+)(?::(sched|menu):([^:]+))?$/, async (ctx) => {
+    const shiftArg = ctx.match[1];
+    const navType = ctx.match[2] as "sched" | "menu" | undefined;
+    const navTarget = ctx.match[3] ? decodeURIComponent(ctx.match[3]) : undefined;
+    await ctx.answerCallbackQuery().catch(() => {});
+
+    const navContext: CanteenNavContext | undefined =
+      navType === "sched"
+        ? { backType: "sched", backGroup: navTarget }
+        : navType === "menu"
+        ? { backType: "menu", backDate: navTarget }
+        : undefined;
+
     try {
       if (shiftArg === "all") {
-        const res = await canteenText();
+        const res = await canteenText(undefined, navContext);
         await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
       } else {
         const dummyClassByShift: Record<string, string> = { "1": "11-1", "2": "10-1", "3": "9-1" };
-        const res = await canteenText(dummyClassByShift[shiftArg] ?? "10-1");
+        const res = await canteenText(dummyClassByShift[shiftArg] ?? "10-1", navContext);
         await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
       }
     } catch (e: any) {
-      if (!e?.message?.includes("message is not modified")) {
+      if (e?.message?.includes("message is not modified")) {
+        const label = shiftArg === "all" ? "«Все смены»" : `${shiftArg}-я смена`;
+        await ctx.answerCallbackQuery({ text: `Смена ${label} уже открыта 👍` }).catch(() => {});
+      } else {
         botLogger.error("SHIFT_CB", "Failed to edit message", e);
       }
     }
@@ -2734,7 +2794,9 @@ function main() {
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     } catch (e: any) {
-      if (!e?.message?.includes("message is not modified")) {
+      if (e?.message?.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "Расписание на этот день уже открыто 👍" }).catch(() => {});
+      } else {
         botLogger.error("SCHED_CB", "Failed to edit message", e);
       }
     }
@@ -2975,16 +3037,24 @@ function main() {
   // Callback query: переключение дат меню
   bot.callbackQuery(/^menu:(.+)$/, async (ctx) => {
     const date = ctx.match[1];
-    await ctx.answerCallbackQuery();
+    await ctx.answerCallbackQuery().catch(() => {});
     if (date === "info") {
-      const res = await canteenText();
-      return ctx.reply(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
+      const userId = ctx.from?.id;
+      const savedClass = userId ? userClassMap.get(userId) : undefined;
+      const res = await canteenText(savedClass, { backType: "menu" });
+      try {
+        return await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
+      } catch {
+        return ctx.reply(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
+      }
     }
     const res = await menuText(date === "today" ? undefined : date);
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: res.keyboard });
     } catch (e: any) {
-      if (!e?.message?.includes("message is not modified")) {
+      if (e?.message?.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "Меню на этот день уже открыто 👍" }).catch(() => {});
+      } else {
         botLogger.error("MENU_CB", "Failed to edit menu message", e);
       }
     }

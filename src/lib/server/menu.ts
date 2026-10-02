@@ -63,8 +63,14 @@ SECTION_ALIASES["втзавтрак"] = "Второй завтрак";
 SECTION_ALIASES["вт завтрак"] = "Второй завтрак";
 SECTION_ALIASES["2-й завтрак"] = "Второй завтрак";
 
-/** Ссылки на PDF-меню: Битрикс генерирует и одинарные, и двойные кавычки href */
-const HREF_RE = /href=["']([^"']*menu_(\d{2})\.(\d{2})\.(\d{2})\.pdf)["']/gi;
+/** Ссылки на PDF-меню: Битрикс генерирует и одинарные, и двойные кавычки href.
+ * Поддерживает разделители точки, подчёркивания и дефисы (menu_30.09.26.pdf, menu_01_10_26.pdf),
+ * а также 2- и 4-значные года.
+ */
+const HREF_RE = /href=["']([^"']*menu_(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})\.pdf)["']/gi;
+
+/** Резервный парсер: поиск даты в названии ссылки в разметке Битрикса */
+const FILE_BLOCK_RE = /<a[^>]+href=["']([^"']+\.pdf)["'][^>]*>[\s\S]*?Меню\s+(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})/gi;
 
 /** КБЖУ-токены: числа могут содержать пробел-разделитель («2 866») */
 const KBJU_TOKEN_RE = /(Ккал|Белки|Жиры|Углеводы)\s*-\s*((?:\d[\d\s]*\d|\d)(?:[.,]\d+)?)/gi;
@@ -80,18 +86,27 @@ export function todayNsk(): string {
 
 export function normalizeDate(input: string): string {
   const trimmed = input.trim();
-  // «ДД.ММ.ГГ» или «ДД.ММ.ГГГГ» → «ДД.ММ.ГГГГ»
-  const m = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{2})(\d{2})?$/);
+  // «ДД.ММ.ГГ», «ДД.ММ.ГГГГ», «ДД_ММ_ГГ» → «ДД.ММ.ГГГГ»
+  const m = trimmed.match(/^(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})$/);
   if (m) {
-    return m[4] ? `${m[1]}.${m[2]}.${m[3]}${m[4]}` : `${m[1]}.${m[2]}.20${m[3]}`;
+    const d = m[1].padStart(2, "0");
+    const mo = m[2].padStart(2, "0");
+    const yr = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${d}.${mo}.${yr}`;
   }
   return trimmed;
 }
 
 export function parseDateRu(value: string): Date {
-  const m = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  const m = value.match(/^(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})$/);
   if (!m) return new Date(NaN);
-  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  const yr = m[3].length === 2 ? Number(`20${m[3]}`) : Number(m[3]);
+  return new Date(yr, Number(m[2]) - 1, Number(m[1]));
+}
+
+/** Хронологическая сортировка списка дат ДД.ММ.ГГГГ */
+export function sortDatesRu(dates: string[]): string[] {
+  return dates.slice().sort((a, b) => parseDateRu(a).getTime() - parseDateRu(b).getTime());
 }
 
 /** Каталог меню: {"ДД.ММ.ГГГГ": абсолютный URL PDF} */
@@ -102,12 +117,31 @@ export async function fetchCatalog(): Promise<Record<string, string>> {
     const html = await response.text();
 
     const catalog: Record<string, string> = {};
+    const pad = (v: string) => v.padStart(2, "0");
+    const fmtYear = (v: string) => (v.length === 2 ? `20${v}` : v);
+
     let match: RegExpExecArray | null;
     HREF_RE.lastIndex = 0;
     while ((match = HREF_RE.exec(html)) !== null) {
       const url = match[1].startsWith("http") ? match[1] : SESC_BASE + match[1];
-      catalog[`${match[2]}.${match[3]}.20${match[4]}`] = url;
+      const d = pad(match[2]);
+      const m = pad(match[3]);
+      const y = fmtYear(match[4]);
+      catalog[`${d}.${m}.${y}`] = url;
     }
+
+    FILE_BLOCK_RE.lastIndex = 0;
+    while ((match = FILE_BLOCK_RE.exec(html)) !== null) {
+      const url = match[1].startsWith("http") ? match[1] : SESC_BASE + match[1];
+      const d = pad(match[2]);
+      const m = pad(match[3]);
+      const y = fmtYear(match[4]);
+      const key = `${d}.${m}.${y}`;
+      if (!catalog[key]) {
+        catalog[key] = url;
+      }
+    }
+
     if (Object.keys(catalog).length === 0) {
       throw new Error(`На странице ${CATERING_URL} не найдено ссылок на PDF-меню`);
     }
@@ -449,7 +483,7 @@ export function parseMenuText(text: string): { meals: MealSection[]; dayTotals: 
 /** Полный конвейер: меню на дату (или ближайшее доступное) */
 export async function getMenu(date?: string): Promise<MenuData> {
   const catalog = await fetchCatalog();
-  const dates = Object.keys(catalog);
+  const dates = sortDatesRu(Object.keys(catalog));
   const requested = date && date.trim() ? normalizeDate(date) : todayNsk();
 
   let target = requested;

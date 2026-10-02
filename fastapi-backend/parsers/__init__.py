@@ -116,7 +116,7 @@ async def _fetch(
             request_headers = {"User-Agent": BROWSER_UA}
             if headers:
                 request_headers.update(headers)
-            response = await client.get(url, params=params, headers=request_headers, timeout=timeout)
+            response = await client.get(url, params=params, headers=request_headers, timeout=timeout, follow_redirects=True)
             response.raise_for_status()
             if kind == "text":
                 return response.text

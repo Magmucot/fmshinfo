@@ -42,11 +42,16 @@ CATALOG_TTL = 3600.0
 #: Папка дискового кэша извлечённого текста PDF
 CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
 
-# Ссылки вида href="/upload/iblock/<hash>/menu_30.08.26.pdf" (или абсолютные)
-#: Ссылки на PDF-меню в каталоге могут быть в одинарных И двойных кавычках
-#: (Битрикс генерирует href='…' в блоке file-div и href="…" в других местах).
+#: Ссылки на PDF-меню: Битрикс генерирует и одинарные, и двойные кавычки href.
+#: Поддерживает разделители точки, подчёркивания и дефисы (menu_30.09.26.pdf, menu_01_10_26.pdf),
+#: а также 2- и 4-значные года.
 HREF_RE = re.compile(
-    r"href=[\"']([^\"']*menu_(\d{2})\.(\d{2})\.(\d{2})\.pdf)[\"']",
+    r"href=[\"']([^\"']*menu_(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})\.pdf)[\"']",
+    re.IGNORECASE,
+)
+#: Резервный парсер: поиск даты в названии ссылки в разметке Битрикса
+FILE_BLOCK_RE = re.compile(
+    r"<a[^>]+href=[\"']([^\"']+\.pdf)[\"'][^>]*>[\s\S]*?Меню\s+(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})",
     re.IGNORECASE,
 )
 
@@ -108,10 +113,12 @@ def normalize_date(value: str) -> str:
     :raises ValueError: если формат некорректен или даты не существует.
     """
     value = value.strip()
-    match = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{2}|\d{4})", value)
+    match = re.fullmatch(r"(\d{1,2})[._\-](\d{1,2})[._\-](\d{2}|\d{4})", value)
     if not match:
         raise ValueError(f"Неверный формат даты {value!r}: ожидается ДД.ММ.ГГ или ДД.ММ.ГГГГ")
     day, month, year = match.groups()
+    day = day.zfill(2)
+    month = month.zfill(2)
     if len(year) == 2:
         year = "20" + year  # меню публикуются начиная с 2000-х
     try:
@@ -157,7 +164,22 @@ async def fetch_catalog(client: Any) -> dict[str, str]:
         url, day, month, year = match.group(1), match.group(2), match.group(3), match.group(4)
         if not url.startswith("http"):
             url = BASE_URL + url
-        catalog[f"{day}.{month}.20{year}"] = url
+        d = day.zfill(2)
+        m = month.zfill(2)
+        y = f"20{year}" if len(year) == 2 else year
+        catalog[f"{d}.{m}.{y}"] = url
+
+    for match in FILE_BLOCK_RE.finditer(html):
+        url, day, month, year = match.group(1), match.group(2), match.group(3), match.group(4)
+        if not url.startswith("http"):
+            url = BASE_URL + url
+        d = day.zfill(2)
+        m = month.zfill(2)
+        y = f"20{year}" if len(year) == 2 else year
+        key = f"{d}.{m}.{y}"
+        if key not in catalog:
+            catalog[key] = url
+
     if catalog:
         _catalog_cache["expires"] = now + CATALOG_TTL
         _catalog_cache["data"] = dict(catalog)

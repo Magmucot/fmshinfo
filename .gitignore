@@ -31,6 +31,7 @@ __pycache__/
 *$py.class
 .venv/
 .pytest_cache/
+fastapi-backend/cache/
 
 # misc
 .DS_Store
