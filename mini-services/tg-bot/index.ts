@@ -2552,7 +2552,12 @@ function main() {
       );
     }
 
-    const top = reports.slice(0, 10);
+    const MAX_MSG_LEN = 3800;
+    const MAX_PER_PAGE = 5;
+    const truncateMsg = (text: string, max = 300) =>
+      text.length > max ? text.slice(0, max) + "…" : text;
+
+    const top = reports.slice(0, MAX_PER_PAGE);
     const lines = [
       `📨 <b>Репорты и обращения пользователей (${reports.length}):</b>`,
       "──────────────────────────",
@@ -2563,15 +2568,34 @@ function main() {
       lines.push(
         `• <b>#${r.id}</b> ${timeStr ? `(<code>${esc(timeStr)}</code>)` : ""}`,
         `  👤 <b>${esc(r.name || "Аноним")}</b> · <i>${esc(r.contact || "—")}</i>`,
-        `  💬 <blockquote>${esc(r.message)}</blockquote>\n`
+        `  💬 <blockquote>${esc(truncateMsg(r.message))}</blockquote>\n`
       );
     }
 
-    if (reports.length > 10) {
-      lines.push(`<i>...и ещё ${reports.length - 10} обращений на сайте во вкладке «Репорты и обращения».</i>`);
+    if (reports.length > MAX_PER_PAGE) {
+      lines.push(`<i>...и ещё ${reports.length - MAX_PER_PAGE} обращений на сайте во вкладке «Репорты и обращения».</i>`);
     }
 
-    return ctx.reply(lines.join("\n"), {
+    let text = lines.join("\n");
+    // Safety net: if still too long, strip blockquotes and truncate harder
+    if (text.length > MAX_MSG_LEN) {
+      const shortLines = [
+        `📨 <b>Репорты и обращения пользователей (${reports.length}):</b>`,
+        "──────────────────────────",
+      ];
+      for (const r of top) {
+        const timeStr = r.createdAtNsk || (r.createdAt ? formatRelativeOrNskTime(r.createdAt) : "");
+        shortLines.push(
+          `• <b>#${r.id}</b> ${timeStr ? `(<code>${esc(timeStr)}</code>)` : ""} — <b>${esc(r.name || "Аноним")}</b>: ${esc(truncateMsg(r.message, 100))}`
+        );
+      }
+      if (reports.length > MAX_PER_PAGE) {
+        shortLines.push(`<i>...и ещё ${reports.length - MAX_PER_PAGE} обращений на сайте.</i>`);
+      }
+      text = shortLines.join("\n").slice(0, MAX_MSG_LEN);
+    }
+
+    return ctx.reply(text, {
       parse_mode: "HTML",
       reply_markup: kb,
     });
