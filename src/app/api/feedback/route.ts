@@ -7,6 +7,8 @@ import {
   recordFailedAdminAttempt,
   resetFailedAdminAttempts,
   isIpRateLimited,
+  isFeedbackRateLimited,
+  recordFeedbackSubmission,
 } from "@/lib/server/auth";
 import { portalLogger, formatNskTimestamp } from "@/lib/server/logger";
 
@@ -19,6 +21,15 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   const ip = getClientIp(request);
+
+  if (isFeedbackRateLimited(ip)) {
+    portalLogger.warn("SECURITY", `Rate-limited feedback submission from IP: ${ip}`);
+    return NextResponse.json(
+      { ok: false, error: "Слишком много отправок. Подождите немного перед повторной отправкой." },
+      { status: 429 }
+    );
+  }
+
   try {
     const raw = await request.json().catch(() => null);
     const parsed = feedbackPayload.safeParse(raw);
@@ -36,6 +47,8 @@ export async function POST(request: NextRequest) {
     const entry = await db.feedback.create({
       data: { name, contact, message },
     });
+
+    recordFeedbackSubmission(ip);
 
     portalLogger.audit(
       "FEEDBACK_SUBMITTED",

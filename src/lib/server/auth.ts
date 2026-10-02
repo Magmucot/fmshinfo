@@ -20,8 +20,8 @@ interface AttemptRecord {
   resetAt: number;
 }
 const failedAttempts = new Map<string, AttemptRecord>();
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
 
 export function recordFailedAdminAttempt(ip: string): boolean {
   const now = Date.now();
@@ -47,6 +47,32 @@ export function isIpRateLimited(ip: string): boolean {
 
 export function resetFailedAdminAttempts(ip: string): void {
   failedAttempts.delete(ip);
+}
+
+/** In-memory rate-limiter for public feedback submissions (anti-spam) */
+interface FeedbackRecord {
+  count: number;
+  resetAt: number;
+}
+const feedbackAttempts = new Map<string, FeedbackRecord>();
+const MAX_FEEDBACK_PER_WINDOW = 8;
+const FEEDBACK_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+export function isFeedbackRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const rec = feedbackAttempts.get(ip);
+  if (!rec || now > rec.resetAt) return false;
+  return rec.count >= MAX_FEEDBACK_PER_WINDOW;
+}
+
+export function recordFeedbackSubmission(ip: string): void {
+  const now = Date.now();
+  const rec = feedbackAttempts.get(ip);
+  if (!rec || now > rec.resetAt) {
+    feedbackAttempts.set(ip, { count: 1, resetAt: now + FEEDBACK_WINDOW_MS });
+  } else {
+    rec.count += 1;
+  }
 }
 
 /** Constant-time comparison between two strings to prevent timing side-channel attacks */

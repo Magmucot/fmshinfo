@@ -304,17 +304,17 @@ export function checkRateLimit(
   const recentIn2s = entry.timestamps.filter((t) => now - t < 2000).length;
 
   // Лимиты:
-  // 1. Интервал между запросами не менее 350мс
-  // 2. Всплеск: не более 3 запросов за 2 секунды
-  // 3. Окно: не более 10 запросов за 10 секунд
-  const isTooFast = interval < 350;
-  const isBurstLimit = recentIn2s >= 3;
-  const isWindowLimit = entry.timestamps.length >= 10;
+  // 1. Интервал между запросами не менее 250мс
+  // 2. Всплеск: не более 5 запросов за 2 секунды
+  // 3. Окно: не более 15 запросов за 10 секунд
+  const isTooFast = interval < 250;
+  const isBurstLimit = recentIn2s >= 5;
+  const isWindowLimit = entry.timestamps.length >= 15;
 
   if (isTooFast || isBurstLimit || isWindowLimit) {
     entry.violationsCount += 1;
     const cooldownMs =
-      entry.violationsCount === 1 ? 15_000 : entry.violationsCount === 2 ? 45_000 : 120_000;
+      entry.violationsCount === 1 ? 20_000 : entry.violationsCount === 2 ? 60_000 : 180_000;
     entry.cooldownUntil = now + cooldownMs;
     entry.warned = true;
     const waitSec = Math.ceil(cooldownMs / 1000);
