@@ -55,8 +55,8 @@ interface FeedbackRecord {
   resetAt: number;
 }
 const feedbackAttempts = new Map<string, FeedbackRecord>();
-const MAX_FEEDBACK_PER_WINDOW = 8;
-const FEEDBACK_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const MAX_FEEDBACK_PER_WINDOW = 3;
+const FEEDBACK_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 export function isFeedbackRateLimited(ip: string): boolean {
   const now = Date.now();
