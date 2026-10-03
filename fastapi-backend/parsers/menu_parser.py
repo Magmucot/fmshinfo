@@ -56,8 +56,20 @@ FILE_BLOCK_RE = re.compile(
 )
 
 #: Канонический порядок приёмов пищи
-SECTION_ORDER: tuple[str, ...] = ("Завтрак", "Обед", "Полдник", "Ужин", "Второй ужин")
+SECTION_ORDER: tuple[str, ...] = ("Завтрак", "Второй завтрак", "Обед", "Полдник", "Ужин", "Второй ужин")
 SECTION_ALIASES: dict[str, str] = {name.lower(): name for name in SECTION_ORDER}
+SECTION_ALIASES["вт.завтрак"] = "Второй завтрак"
+SECTION_ALIASES["вт завтрак"] = "Второй завтрак"
+SECTION_ALIASES["втзавтрак"] = "Второй завтрак"
+SECTION_ALIASES["2-й завтрак"] = "Второй завтрак"
+SECTION_ALIASES["2 завтрак"] = "Второй завтрак"
+SECTION_ALIASES["вт.ужин"] = "Второй ужин"
+SECTION_ALIASES["вт. ужин"] = "Второй ужин"
+SECTION_ALIASES["вт ужин"] = "Второй ужин"
+SECTION_ALIASES["втужин"] = "Второй ужин"
+SECTION_ALIASES["2-й ужин"] = "Второй ужин"
+SECTION_ALIASES["2 ужин"] = "Второй ужин"
+SECTION_ALIASES["поздний ужин"] = "Второй ужин"
 
 #: Фрагменты «шапки» PDF, которые не являются блюдами
 NOISE_MARKERS: tuple[str, ...] = (
@@ -293,8 +305,8 @@ def _parse_kbju(fragments: list[str]) -> dict[str, int | float]:
 
 
 def _clean_name(name: str) -> str:
-    """Убрать обрамляющие кавычки и лишние пробелы из названия блюда."""
-    return name.strip().strip('"«»„“').strip()
+    """Убрать обрамляющие кавычки, битые символы и лишние пробелы из названия блюда."""
+    return name.replace("\ufffd", "").strip().strip('"«»„“').strip()
 
 
 def _split_trailing_nutrition(rest: str) -> tuple[str, str | None]:

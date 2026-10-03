@@ -160,17 +160,29 @@ export async function extractPdfText(pdfBytes: Uint8Array): Promise<string> {
       return reject(err);
     }
 
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf-8");
+      stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf-8");
+      stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
 
+    child.stdin.on("error", () => {
+      // Игнорируем EPIPE если pdftotext завершился раньше завершения записи
+    });
+
+    const timeoutTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {}
+      reject(new Error("Таймаут pdftotext (15 секунд)"));
+    }, 15000);
+
     child.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timeoutTimer);
       if (err.code === "ENOENT") {
         reject(
           new Error(
@@ -183,10 +195,11 @@ export async function extractPdfText(pdfBytes: Uint8Array): Promise<string> {
     });
 
     child.on("close", (code) => {
+      clearTimeout(timeoutTimer);
       if (code !== 0) {
-        reject(new Error(`pdftotext завершился с кодом ${code}: ${stderr.trim()}`));
+        reject(new Error(`pdftotext завершился с кодом ${code}: ${Buffer.concat(stderrChunks).toString("utf-8").trim()}`));
       } else {
-        resolve(stdout);
+        resolve(Buffer.concat(stdoutChunks).toString("utf-8"));
       }
     });
 
@@ -405,7 +418,7 @@ export function parseMenuText(text: string): { meals: MealSection[]; dayTotals: 
 
         const dish: Dish = {
           weight: line.weight,
-          name: rest.replace(/\s{2,}/g, " ").replace(/["«»]/g, "").trim(),
+          name: rest.replace(/\uFFFD/g, "").replace(/\s{2,}/g, " ").replace(/["«»]/g, "").trim(),
           kcal: kbju.kcal,
           protein: kbju.protein,
           fat: kbju.fat,
@@ -439,7 +452,7 @@ export function parseMenuText(text: string): { meals: MealSection[]; dayTotals: 
           else dish.ingredients = ing;
           j++;
         }
-        if (nameTail) dish.name = (dish.name + " " + nameTail).replace(/\s{2,}/g, " ").trim();
+        if (nameTail) dish.name = (dish.name + " " + nameTail).replace(/\uFFFD/g, "").replace(/\s{2,}/g, " ").trim();
 
         i = j - 1;
         current.dishes.push(dish);
