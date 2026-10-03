@@ -19,6 +19,7 @@
     "test:menu": "npx tsx --test tests/menu-parser.test.mjs",
     "test:broadcast": "npx tsx --test tests/broadcast.test.mjs",
     "test:keyboard": "npx tsx --test tests/bot-keyboard.test.mjs",
+    "test:watchdog": "node --test tests/watchdog.test.mjs",
     "test:api": "node --env-file=.env tests/profile-api.mjs",
     "test:verify": "node --env-file=.env tests/integration-verification.mjs",
     "bot:dev": "cd mini-services/tg-bot && bun run dev",

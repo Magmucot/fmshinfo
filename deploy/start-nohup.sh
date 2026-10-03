@@ -5,6 +5,15 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/sunc-info"
 BOT_ENV="${BOT_ENV:-$HOME/.config/sunc-tg-bot.env}"
 PORTAL_ENV="${PORTAL_ENV:-$HOME/.config/sunc-portal.env}"
+
+# Fallback to repository .env if user config file doesn't exist
+if [[ ! -f "$BOT_ENV" && -f "$ROOT_DIR/.env" ]]; then
+  BOT_ENV="$ROOT_DIR/.env"
+fi
+if [[ ! -f "$PORTAL_ENV" && -f "$ROOT_DIR/.env" ]]; then
+  PORTAL_ENV="$ROOT_DIR/.env"
+fi
+
 mkdir -p "$STATE_DIR"
 
 pid_file() { printf '%s/%s.pid' "$STATE_DIR" "$1"; }
@@ -34,26 +43,48 @@ start_portal() {
 start_bot() {
   [[ -f "$BOT_ENV" ]] || { echo "Missing $BOT_ENV" >&2; exit 1; }
   if running bot; then echo "bot already running"; return; fi
-  nohup bash -c 'cd -- "$1"; set -a; source "$2"; set +a; exec "$1/mini-services/tg-bot/run-production.sh"' _ "$ROOT_DIR" "$BOT_ENV" >>"$(log_file bot)" 2>&1 &
+  nohup "$ROOT_DIR/deploy/bot-watchdog.sh" "$ROOT_DIR" "$BOT_ENV" "$STATE_DIR" "$(log_file bot)" >>"$(log_file bot)" 2>&1 &
   echo $! >"$(pid_file bot)"
-  echo "bot started; log: $(log_file bot)"
+  echo "bot started with watchdog supervisor; log: $(log_file bot)"
 }
 stop_one() {
-  local name="$1" file pid
+  local name="$1" file pid worker_file worker_pid
   file="$(pid_file "$name")"; [[ -s "$file" ]] || return 0; pid="$(cat "$file")"
+  worker_file="$STATE_DIR/${name}-worker.pid"
+
   if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-    kill -TERM "$pid"
+    kill -TERM "$pid" 2>/dev/null || true
     for _ in {1..30}; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
-    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" || true
+    kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null || true
   fi
+
+  if [[ -s "$worker_file" ]]; then
+    worker_pid="$(cat "$worker_file")"
+    if [[ "$worker_pid" =~ ^[0-9]+$ ]] && kill -0 "$worker_pid" 2>/dev/null; then
+      kill -TERM "$worker_pid" 2>/dev/null || true
+      for _ in {1..10}; do kill -0 "$worker_pid" 2>/dev/null || break; sleep 0.5; done
+      kill -0 "$worker_pid" 2>/dev/null && kill -KILL "$worker_pid" 2>/dev/null || true
+    fi
+    rm -f "$worker_file"
+  fi
+
   rm -f "$file"; echo "$name stopped"
 }
 status() {
-  local name pid
+  local name pid worker_pid
   for name in portal bot; do
     if running "$name"; then
       pid="$(cat "$(pid_file "$name")")"
-      echo "$name: running (PID $pid)"
+      if [[ "$name" == "bot" && -s "$STATE_DIR/bot-worker.pid" ]]; then
+        worker_pid="$(cat "$STATE_DIR/bot-worker.pid")"
+        if kill -0 "$worker_pid" 2>/dev/null; then
+          echo "$name: running (watchdog PID $pid, worker PID $worker_pid)"
+        else
+          echo "$name: running (watchdog PID $pid, worker restarting)"
+        fi
+      else
+        echo "$name: running (PID $pid)"
+      fi
     else
       echo "$name: stopped"
     fi

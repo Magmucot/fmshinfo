@@ -92,7 +92,7 @@ Telegram ←→ grammY long polling
 
 ## Production на сервере
 
-Основной серверный запуск — [`deploy/start-nohup.sh`](../../deploy/start-nohup.sh): он поднимает внутренний API в фоне, ждёт готовности и затем запускает бота. Команды: `start`, `stop`, `restart`, `status`. Systemd остаётся альтернативой: [инструкция](../../deploy/systemd/README.md).
+Основной серверный запуск — [`deploy/start-nohup.sh`](../../deploy/start-nohup.sh) (или корневой `./start_nohup.sh`): он поднимает внутренний API в фоне, ждёт готовности и запускает бота под управлением watchdog-супервизора (`deploy/bot-watchdog.sh`). При аварийном падении бота watchdog автоматически перезапускает процесс и отправляет отчёт с логами ошибки администраторам (в `/api/feedback`, `reports.json` и прямым Telegram-сообщением). Команды: `start`, `stop`, `restart`, `status`. Systemd остаётся альтернативой: [инструкция](../../deploy/systemd/README.md).
 
 Скрипт `run-production.sh` запускает Bun без hot reload и требует `TELEGRAM_BOT_TOKEN`, `ADMIN_KEY`, `PORTAL_API`. Профили, рейтинг и логи хранятся вне кода; если каталоги не заданы, для `nohup` используются `~/.local/share/sunc-tg-bot` и `~/.local/state/sunc-tg-bot`. SIGTERM сохраняет данные, ошибки старта завершают процесс для автоперезапуска.
 
