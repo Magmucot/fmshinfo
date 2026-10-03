@@ -37,6 +37,20 @@ function stripTags(fragment: string): string {
     .trim();
 }
 
+function parseDateRu(d?: string | null): number {
+  if (!d) return 0;
+  const parts = d.split(".");
+  if (parts.length === 3) {
+    const day = Number(parts[0]);
+    const month = Number(parts[1]);
+    const year = Number(parts[2]);
+    if (day && month && year) {
+      return Date.UTC(year, month - 1, day);
+    }
+  }
+  return 0;
+}
+
 export async function getNews(limit = 12): Promise<{ items: NewsItem[] }> {
   const response = await fetchWithTimeout(NEWS_URL, { timeoutMs: 20000 });
   if (!response.ok) throw new Error(`Страница новостей недоступна: HTTP ${response.status}`);
@@ -75,7 +89,12 @@ export async function getNews(limit = 12): Promise<{ items: NewsItem[] }> {
 
   if (items.length === 0) throw new Error("Не удалось разобрать список новостей");
 
-  // свежие сверху (по дате, затем по порядку на странице)
-  items.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.id.localeCompare(a.id));
+  // свежие сверху (по дате, затем по id)
+  items.sort((a, b) => {
+    const timeDiff = parseDateRu(b.date) - parseDateRu(a.date);
+    if (timeDiff !== 0) return timeDiff;
+    const numDiff = (Number(b.id) || 0) - (Number(a.id) || 0);
+    return numDiff !== 0 ? numDiff : b.id.localeCompare(a.id);
+  });
   return { items: items.slice(0, limit) };
 }

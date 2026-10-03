@@ -200,17 +200,15 @@ export function resolveTargetClasses(
     }
   }
 
-  // Поиск сокращённых записей вида 11-5,6 или 9-1,2,3 или 11-1,2,3
+  // Поиск сокращённых записей вида 11-5,6 или 9-1,2,3 или 11-11,12
   const shortMatches = textClean.matchAll(/\b(8|9|10|11)-([1-9]|1[0-2])(?:\s*,\s*([1-9]|1[0-2]))+\b/g);
   for (const m of shortMatches) {
     const prefix = m[1];
-    const subnums = m[0].match(/\b\d{1,2}\b/g) ?? [];
+    const subnums = (m[0].match(/\b\d{1,2}\b/g) ?? []).slice(1);
     for (const num of subnums) {
-      if (num !== prefix) {
-        const cls = `${prefix}-${num}`;
-        if (allSchoolClasses.includes(cls)) {
-          explicitClasses.add(cls);
-        }
+      const cls = `${prefix}-${num}`;
+      if (allSchoolClasses.includes(cls)) {
+        explicitClasses.add(cls);
       }
     }
   }

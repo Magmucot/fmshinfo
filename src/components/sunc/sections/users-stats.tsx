@@ -1001,17 +1001,19 @@ function AdminLogsConsole({
 }) {
   const [file, setFile] = useState<"bot" | "portal" | "audit">("bot");
   const [level, setLevel] = useState<string>("ALL");
-  const [search, setSearch] = useState<string>(initialSearch);
+  const [search, setSearch] = useState<string>(initialSearch ?? "");
+  const [prevInitialSearch, setPrevInitialSearch] = useState(initialSearch);
   const [limit, setLimit] = useState<number>(150);
   const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"structured" | "raw">("structured");
 
-  useEffect(() => {
+  if (initialSearch !== prevInitialSearch) {
+    setPrevInitialSearch(initialSearch);
     if (initialSearch) {
       setSearch(initialSearch);
     }
-  }, [initialSearch]);
+  }
 
   const { data, isLoading, isError, refetch, isFetching } = useAdminLogs(
     adminKey,

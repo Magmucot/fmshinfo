@@ -82,8 +82,11 @@ function renderTelegramHtml(rawText: string) {
     .replace(/&lt;blockquote&gt;([\s\S]*?)&lt;\/blockquote&gt;/gi, "<blockquote class='border-l-2 border-blue-500 pl-2.5 my-1 text-slate-700 dark:text-slate-300 italic'>$1</blockquote>")
     .replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/gi, "<u>$1</u>")
     .replace(/&lt;s&gt;([\s\S]*?)&lt;\/s&gt;/gi, "<s>$1</s>")
-    .replace(/&lt;strike&gt;([\s\S]*?)&lt;\/strike&gt;/gi, "<s>$1</s>")
-    .replace(/&lt;a href=['"]([\s\S]*?)['"]&gt;([\s\S]*?)&lt;\/a&gt;/gi, "<a href='$1' target='_blank' rel='noopener noreferrer' class='text-blue-500 hover:underline'>$2</a>")
+    .replace(/&lt;a href=['"]([\s\S]*?)['"]&gt;([\s\S]*?)&lt;\/a&gt;/gi, (_, href, content) => {
+      const trimmed = String(href).trim();
+      const safeUrl = /^(?:https?:\/\/|tg:\/\/)/i.test(trimmed) ? trimmed : "#";
+      return `<a href='${safeUrl}' target='_blank' rel='noopener noreferrer' class='text-blue-500 hover:underline'>${content}</a>`;
+    })
     .replace(/\n/g, "<br/>");
 
   return <span dangerouslySetInnerHTML={{ __html: formatted }} />;

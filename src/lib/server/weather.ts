@@ -212,11 +212,17 @@ async function wttrIn(): Promise<WeatherData> {
     return `${String(hours).padStart(2, "0")}:${m[2]}`;
   };
 
+  const parseNum = (val: unknown): number | null => {
+    if (val === null || val === undefined || val === "") return null;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : null;
+  };
+
   const current: WeatherCurrent = {
-    temperature: Number(now.temp_C) || null,
-    apparent: Number(now.FeelsLikeC) || null,
-    humidity: Number(now.humidity) || null,
-    windSpeed: Number(now.windspeedKmph) || null,
+    temperature: parseNum(now.temp_C),
+    apparent: parseNum(now.FeelsLikeC),
+    humidity: parseNum(now.humidity),
+    windSpeed: parseNum(now.windspeedKmph),
     windDirection: now.winddir16Point ?? null,
     description,
     icon,
@@ -239,8 +245,8 @@ async function wttrIn(): Promise<WeatherData> {
       date: (day.date ?? "").split("-").reverse().join("."),
       icon: dayIcon,
       description: desc,
-      tempMax: Number(day.maxtempC) || null,
-      tempMin: Number(day.mintempC) || null,
+      tempMax: parseNum(day.maxtempC),
+      tempMin: parseNum(day.mintempC),
       precipitationProbability: chance || null,
     });
   }

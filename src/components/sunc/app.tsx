@@ -24,6 +24,8 @@ import { WeatherSection } from "./sections/weather";
 import { NewsSection } from "./sections/news";
 import { InfoSection } from "./sections/info";
 import { UsersStatsSection } from "./sections/users-stats";
+import { GuideSection } from "./sections/guide";
+import { DocumentSection } from "./sections/document";
 
 const TABS = [
   { id: "dashboard", label: "Главная", icon: LayoutDashboard },
@@ -38,9 +40,10 @@ const TABS = [
   { id: "users", label: "Аудитория", icon: Users },
 ] as const;
 
-type TabId = (typeof TABS)[number]["id"];
+export const VALID_TABS = [...TABS.map((t) => t.id), "guide", "document"] as const;
+type TabId = (typeof VALID_TABS)[number];
 
-const TAB_IDS = TABS.map((t) => t.id) as readonly TabId[];
+const TAB_IDS = VALID_TABS as readonly TabId[];
 
 /** Режим раздела «Столовая»: меню, график смен питания (rasp.jpg) или аналитика */
 export type CanteenView = "menu" | "schedule" | "analytics";
@@ -122,15 +125,15 @@ export default function SuncApp() {
     };
   }, []);
 
-  // Горячие клавиши: Alt+1…9 — вкладки 1–9
+  // Горячие клавиши: Alt+1…0 — вкладки 1–10
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
-      if (!/^[1-9]$/.test(e.key)) return;
+      if (!/^[0-9]$/.test(e.key)) return;
       e.preventDefault();
-      const idx = Number(e.key) - 1;
+      const idx = e.key === "0" ? 9 : Number(e.key) - 1;
       if (idx < TABS.length) navigate(TABS[idx].id);
     };
     window.addEventListener("keydown", onKey);
@@ -246,6 +249,8 @@ export default function SuncApp() {
             {tab === "news" && <NewsSection />}
             {tab === "info" && <InfoSection />}
             {tab === "users" && <UsersStatsSection />}
+            {tab === "guide" && <GuideSection onNavigate={navigate} />}
+            {tab === "document" && <DocumentSection />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -267,7 +272,14 @@ export default function SuncApp() {
                 , Open-Meteo/wttr.in, Google Sheets
               </p>
               <p className="text-[11px] text-muted-foreground/80">
-                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · быстрый переход: Alt+1…9
+                СУНЦ НГУ · ул. Пирогова, здание 4 · sesc@nsu.ru · быстрый переход: Alt+1…0 ·{" "}
+                <button onClick={() => navigate("guide")} className="text-primary hover:underline cursor-pointer">
+                  Гайд
+                </button>{" "}
+                ·{" "}
+                <button onClick={() => navigate("document")} className="text-primary hover:underline cursor-pointer">
+                  Документация
+                </button>
               </p>
             </div>
             <Badge variant="outline" className="shrink-0 border-primary/30 bg-primary/5 text-primary">

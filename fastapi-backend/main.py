@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -189,8 +190,8 @@ async def _cached(key: str, ttl: float, fetch, **response_model_kwargs) -> dict[
 
 
 def _require_admin(x_admin_key: str | None) -> None:
-    """Проверка секретного ключа администратора."""
-    if x_admin_key != ADMIN_KEY:
+    """Проверка секретного ключа администратора с защитой от атак по времени."""
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, ADMIN_KEY):
         raise HTTPException(status_code=401, detail="Неверный X-Admin-Key")
 
 

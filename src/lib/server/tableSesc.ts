@@ -222,7 +222,7 @@ export async function getSchedule(filter: {
 
   const schedule = data.payload?.schedule ?? {};
   const days: Record<string, ScheduleLesson[]> = {};
-  for (let wd = 1; wd <= 6; wd++) days[String(wd)] = [];
+  for (let wd = 1; wd <= 7; wd++) days[String(wd)] = [];
 
   for (const [key, lessons] of Object.entries(schedule)) {
     const [weekdayStr] = key.split("-");
@@ -245,7 +245,7 @@ export async function getSchedule(filter: {
       const pair = PAIR_BY_BEGIN[begin] ?? null;
       const pairName = pair !== null ? PAIR_NAMES[pair] ?? null : null;
 
-      days[String(weekday)]?.push({
+      (days[String(weekday)] ??= []).push({
         weekday,
         begin,
         end: lesson.time?.end ?? "",

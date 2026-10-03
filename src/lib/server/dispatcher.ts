@@ -5,7 +5,8 @@
  */
 
 import os from "os";
-import { readFileSync, existsSync } from "fs";
+import path from "path";
+import { readFileSync, existsSync, promises as fsPromises } from "fs";
 import { db } from "../db";
 import { cached, TTL } from "./cache";
 import { getMenu } from "./menu";
@@ -273,10 +274,29 @@ export async function handleApiRoute(
         if (!body.date || !/^\d{2}\.\d{2}\.\d{4}$/.test(body.date)) {
           return { status: 400, data: { ok: false, error: "Поле date обязательно в формате ДД.ММ.ГГГГ" } };
         }
+        const data = {
+          date: String(body.date),
+          dutyType: body.dutyType ? String(body.dutyType) : "столовая",
+          className: body.className ? String(body.className) : null,
+          responsible: body.responsible ? String(body.responsible) : null,
+          timeInterval: body.timeInterval ? String(body.timeInterval) : null,
+          notes: body.notes ? String(body.notes) : null,
+        };
         const entry = body.id
-          ? await db.dutyEntry.update({ where: { id: body.id }, data: body })
-          : await db.dutyEntry.create({ data: body });
+          ? await db.dutyEntry.update({ where: { id: Number(body.id) }, data })
+          : await db.dutyEntry.create({ data });
         return { status: 200, data: { ok: true, entry } };
+      }
+      if (method === "DELETE") {
+        if (!checkAdminAuth(headers)) {
+          return { status: 401, data: { ok: false, error: "Неверный X-Admin-Key" } };
+        }
+        const id = Number(params.get("id"));
+        if (!Number.isInteger(id)) {
+          return { status: 400, data: { ok: false, error: "Некорректный id" } };
+        }
+        await db.dutyEntry.delete({ where: { id } });
+        return { status: 200, data: { ok: true } };
       }
     }
 
@@ -296,9 +316,20 @@ export async function handleApiRoute(
           return { status: 401, data: { ok: false, error: "Неверный X-Admin-Key" } };
         }
         const body = options.body ?? {};
+        if (!body.date || !body.dormitory || !body.counselorName) {
+          return { status: 400, data: { ok: false, error: "Поля date, dormitory и counselorName обязательны" } };
+        }
+        const data = {
+          date: String(body.date),
+          dormitory: String(body.dormitory),
+          counselorName: String(body.counselorName),
+          phone: body.phone ? String(body.phone) : null,
+          floor: body.floor ? String(body.floor) : null,
+          notes: body.notes ? String(body.notes) : null,
+        };
         const entry = body.id
-          ? await db.nightCounselor.update({ where: { id: body.id }, data: body })
-          : await db.nightCounselor.create({ data: body });
+          ? await db.nightCounselor.update({ where: { id: Number(body.id) }, data })
+          : await db.nightCounselor.create({ data });
         return { status: 200, data: { ok: true, entry } };
       }
       if (method === "DELETE") {
@@ -479,6 +510,17 @@ export async function handleApiRoute(
             timestamp: result.timestamp,
           },
         };
+      }
+    }
+
+    // 15. /api/document
+    if (pathname === "/api/document") {
+      try {
+        const docPath = path.join(process.cwd(), "docs", "sunc-info-analysis.md");
+        const markdown = await fsPromises.readFile(docPath, "utf-8");
+        return { status: 200, data: { ok: true, markdown, size: markdown.length } };
+      } catch (err: any) {
+        return { status: 404, data: { ok: false, error: "Документ не найден: " + (err?.message || "") } };
       }
     }
 
