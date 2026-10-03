@@ -1071,13 +1071,13 @@ export function getClassSelectionKeyboard(): InlineKeyboard {
   return kb;
 }
 
-/** Главная Reply-клавиатура для быстрого доступа */
+/** Главная Reply-клавиатура для быстрого доступа (меню объединено в Столовую) */
 export function getMainReplyKeyboard(userClass?: string): Keyboard {
   const classLabel = userClass ? `🏫 Класс: ${userClass}` : "🏫 Выбрать класс";
   return new Keyboard()
     .text("📅 Расписание").text("🍱 Столовая").text("⚡ Сейчас").row()
-    .text("🍽 Меню").text("🔔 Звонки").text("📌 События").row()
-    .text("🌤 Погода").text(classLabel).row()
+    .text("🔔 Звонки").text("📌 События").text("🌤 Погода").row()
+    .text(classLabel).row()
     .text("📝 Отправить репорт")
     .resized();
 }
@@ -1086,6 +1086,7 @@ export function getMainReplyKeyboard(userClass?: string): Keyboard {
 
 function cleanDishName(name: string): string {
   return name
+    .replace(/\uFFFD/g, "")
     .replace(/^["'«»]/, "")
     .replace(/["'«»]$/, "")
     .replace(/Геркулесана/gi, '«Геркулеса» на')
@@ -1147,7 +1148,12 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
   const isToday = data.date === todayStr;
 
   const keyboard = new InlineKeyboard();
-  let hasNavigation = false;
+  // Вкладки Столовой: [ • 🍽 Меню • ] [ 🍱 График смен ]
+  keyboard
+    .text("• 🍽 Меню •", "canteen:tab:menu:noop")
+    .text("🍱 График смен", `canteen:tab:sched:${data.date}`)
+    .row();
+
   if (data.availableDates && data.availableDates.length > 1) {
     const idx = data.availableDates.indexOf(data.date);
     if (idx > 0) {
@@ -1159,13 +1165,8 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
       const next = data.availableDates[idx + 1];
       keyboard.text(`${next.replace(/\.20\d\d$/, "")} ▶`, `menu:${next}`);
     }
-    keyboard.row();
-    keyboard.text("🍱 График смен", `canteen:info:${data.date}`);
-    hasNavigation = true;
   } else {
     keyboard.text(isToday ? "• Сегодня •" : "📅 Сегодня", "menu:today");
-    keyboard.text("🍱 График смен", `canteen:info:${data.date}`);
-    hasNavigation = true;
   }
 
   if (!data.meals || !data.meals.length) {
@@ -1206,7 +1207,7 @@ export async function menuText(date?: string): Promise<{ text: string; keyboard?
   const hasDishes = data.meals.some((m) => m.dishes && m.dishes.length > 0);
   const dateToken = compactMenuDate(data.date);
   if (dateToken && hasDishes) {
-    keyboard.text("⭐ Оценить блюдо", `rate:menu:${dateToken}`);
+    keyboard.row().text("⭐ Оценить блюдо", `rate:menu:${dateToken}`);
   }
 
   return { text: lines.join("\n").trim(), keyboard };
@@ -1324,11 +1325,13 @@ export async function canteenText(
 
   const navSuffix = navContext?.backType === "sched" && (navContext.backGroup || className)
     ? `:sched:${encodeURIComponent(navContext.backGroup || className || "")}`
-    : navContext?.backType === "menu"
-    ? `:menu:${encodeURIComponent(navContext.backDate || "today")}`
-    : "";
+    : `:menu:${encodeURIComponent(navContext?.backDate || "today")}`;
 
+  const menuDate = navContext?.backDate || "today";
   const keyboard = new InlineKeyboard()
+    .text("🍽 Меню", `canteen:tab:menu:${menuDate}`)
+    .text("• 🍱 График смен •", "canteen:tab:sched:noop")
+    .row()
     .text("1-я смена (8, 11)", `canteen:shift:1${navSuffix}`)
     .text("2-я смена (10)", `canteen:shift:2${navSuffix}`).row()
     .text("3-я смена (9, 11-10)", `canteen:shift:3${navSuffix}`)
@@ -1336,8 +1339,6 @@ export async function canteenText(
 
   if (navContext?.backType === "sched" && (navContext.backGroup || className)) {
     keyboard.row().text("◀ Назад к расписанию", `sched:${navContext.backGroup || className}:today`);
-  } else if (navContext?.backType === "menu") {
-    keyboard.row().text("◀ Назад к меню", `menu:${navContext.backDate || "today"}`);
   } else if (className) {
     keyboard.row().text("📅 К расписанию класса", `sched:${className}:today`);
   }
@@ -1930,7 +1931,7 @@ function main() {
         "📅 /schedule — расписание занятий",
         "⏰ /tomorrow — расписание на завтра",
         "👥 /subgroup — выбор подгрупп (англ отдельно)",
-        "🍱 /canteen — график смен питания",
+        "🍱 /canteen — столовая: меню и график смен",
         "⚡ /now — что прямо сейчас в школе",
         "🍽 /menu — меню столовой на сегодня",
         "🔔 /bells — расписание звонков",
@@ -2917,7 +2918,7 @@ function main() {
       "📅 /schedule — расписание занятий по парам",
       "⏰ /tomorrow — расписание на завтра",
       "👥 /subgroup — выбор подгрупп (англ отдельно)",
-      "🍱 /canteen — смена и график питания столовой",
+      "🍱 /canteen — столовая: меню и график смен",
       "🍽 /menu — меню столовой на сегодня",
       "⚡ /now — что прямо сейчас идёт в школе",
       "🔔 /bells — расписание звонков (3 пары)",
@@ -2994,19 +2995,22 @@ function main() {
   bot.command("canteen", async (ctx) => {
     const userId = ctx.from?.id;
     const savedClass = userId ? userClassMap.get(userId) : undefined;
-    const arg = ctx.match?.trim() || savedClass;
+    const arg = ctx.match?.trim();
 
-    if (!arg) {
-      return ctx.reply("🍱 <b>Сначала выберите свой класс:</b>", {
+    await ctx.replyWithChatAction("typing");
+    if (arg) {
+      const res = await canteenText(arg);
+      return ctx.reply(res.text, {
         parse_mode: "HTML",
-        reply_markup: getClassSelectionKeyboard(),
+        reply_markup: res.keyboard,
       });
     }
 
-    await ctx.replyWithChatAction("typing");
-    const res = await canteenText(arg);
-    await ctx.reply(res.text, {
+    // Без явного класса: открываем единый раздел Столовой (меню дня с вкладками)
+    const res = await menuText();
+    return ctx.reply(res.text, {
       parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
       reply_markup: res.keyboard,
     });
   });
@@ -3191,13 +3195,41 @@ function main() {
     }
   });
 
-  // Callback query: открытие смен столовой из меню (/menu)
-  bot.callbackQuery(/^canteen:info(?::(.*))?$/, async (ctx) => {
-    const backDate = ctx.match[1];
+  // Callback query: переключение на вкладку меню столовой
+  bot.callbackQuery(/^canteen:tab:menu(?::(.*))?$/, async (ctx) => {
+    const rawDate = ctx.match[1];
+    if (rawDate === "noop") {
+      return ctx.answerCallbackQuery({ text: "Раздел «Меню» уже открыт 👍" }).catch(() => {});
+    }
+    await ctx.answerCallbackQuery().catch(() => {});
+    const date = (!rawDate || rawDate === "today" || rawDate === "noop") ? undefined : rawDate;
+    const res = await menuText(date);
+    try {
+      await ctx.editMessageText(res.text, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: res.keyboard,
+      });
+    } catch (e: any) {
+      if (e?.message?.includes("message is not modified")) {
+        await ctx.answerCallbackQuery({ text: "Раздел «Меню» уже открыт 👍" }).catch(() => {});
+      } else {
+        botLogger.error("CANTEEN_TAB_MENU_CB", "Failed to edit message", e);
+      }
+    }
+  });
+
+  // Callback query: открытие смен столовой из меню (/menu) или вкладки графика
+  bot.callbackQuery(/^(?:canteen:info|canteen:tab:sched)(?::(.*))?$/, async (ctx) => {
+    const rawDate = ctx.match[1];
+    if (rawDate === "noop") {
+      return ctx.answerCallbackQuery({ text: "График питания уже открыт 👍" }).catch(() => {});
+    }
+    const backDate = (!rawDate || rawDate === "today") ? undefined : rawDate;
     const userId = ctx.from?.id;
     const savedClass = userId ? userClassMap.get(userId) : undefined;
     await ctx.answerCallbackQuery().catch(() => {});
-    const res = await canteenText(savedClass, { backType: "menu", backDate: backDate || undefined });
+    const res = await canteenText(savedClass, { backType: "menu", backDate });
     try {
       await ctx.editMessageText(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     } catch (e: any) {
@@ -3666,10 +3698,14 @@ function main() {
       }
     }
 
-    if (text === "🍽 Меню") {
+    if (text === "🍽 Меню" || text === "🍱 Столовая") {
       await ctx.replyWithChatAction("typing");
       const res = await menuText();
-      return ctx.reply(res.text, { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_markup: res.keyboard });
+      return ctx.reply(res.text, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: res.keyboard,
+      });
     }
 
     if (text === "📅 Расписание") {
@@ -3681,18 +3717,6 @@ function main() {
       }
       await ctx.replyWithChatAction("typing");
       const res = await scheduleText(savedClass, undefined, false, userId);
-      return ctx.reply(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
-    }
-
-    if (text === "🍱 Столовая") {
-      if (!savedClass) {
-        return ctx.reply("🍱 <b>Выберите ваш класс, чтобы узнать смену питания:</b>", {
-          parse_mode: "HTML",
-          reply_markup: getClassSelectionKeyboard(),
-        });
-      }
-      await ctx.replyWithChatAction("typing");
-      const res = await canteenText(savedClass);
       return ctx.reply(res.text, { parse_mode: "HTML", reply_markup: res.keyboard });
     }
 
@@ -3730,8 +3754,8 @@ function main() {
           { command: "start", description: "🚀 Запуск и выбор класса" },
           { command: "now", description: "⚡ Что сейчас идёт в школе" },
           { command: "schedule", description: "📅 Расписание занятий по парам" },
-          { command: "canteen", description: "🍱 График питания в столовой" },
-          { command: "menu", description: "🍽 Меню столовой на сегодня" },
+          { command: "canteen", description: "🍱 Столовая: меню и график смен" },
+          { command: "menu", description: "🍽 Меню столовой и график смен" },
           { command: "tomorrow", description: "⏰ Расписание на завтра" },
           { command: "setclass", description: "👤 Выбрать или сменить класс" },
           { command: "subgroup", description: "👥 Выбрать подгруппы (англ отдельно)" },

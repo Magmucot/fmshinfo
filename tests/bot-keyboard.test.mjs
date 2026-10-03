@@ -12,13 +12,13 @@ test('getMainReplyKeyboard generates 4 balanced rows with single-row report butt
   );
   assert.deepEqual(
     kb.keyboard[1].map((b) => b.text),
-    ['🍽 Меню', '🔔 Звонки', '📌 События'],
+    ['🔔 Звонки', '📌 События', '🌤 Погода'],
     'Row 2 should contain 3 info buttons'
   );
   assert.deepEqual(
     kb.keyboard[2].map((b) => b.text),
-    ['🌤 Погода', '🏫 Класс: 10-1'],
-    'Row 3 should contain 2 buttons (weather and class label)'
+    ['🏫 Класс: 10-1'],
+    'Row 3 should contain class label'
   );
   assert.deepEqual(
     kb.keyboard[3].map((b) => b.text),
@@ -32,7 +32,7 @@ test('getMainReplyKeyboard without saved class shows select class button in row 
   assert.equal(kb.keyboard.length, 4);
   assert.deepEqual(
     kb.keyboard[2].map((b) => b.text),
-    ['🌤 Погода', '🏫 Выбрать класс']
+    ['🏫 Выбрать класс']
   );
   assert.deepEqual(
     kb.keyboard[3].map((b) => b.text),
