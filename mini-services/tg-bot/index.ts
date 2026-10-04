@@ -1818,12 +1818,16 @@ export async function counselorsText(): Promise<string> {
   return lines.join("\n");
 }
 
-/** Контакты школы */
+/** Справочник школы и информация о боте */
 export async function infoText(): Promise<string> {
   const data = await api<InfoResponse>("/api/info");
   if (!data) return "ℹ️ Справочная информация временно недоступна.";
   const lines = [
     `🏫 <b>${esc(data.school.name)}</b>\n`,
+    "<blockquote>",
+    "🤖 <b>О боте «СУНЦ Инфо»:</b>",
+    "Бот создан учениками для учеников СУНЦ НГУ (ФМШ). Он помогает быстро находить расписание по парам, смены питания и меню столовой, звонки, дежурства, мероприятия и контакты школы.",
+    "</blockquote>\n",
     "<blockquote>",
     `📍 ${esc(data.school.address)}`,
     `🌐 <a href="${esc(data.school.site)}">${esc(data.school.site)}</a>`,
@@ -2006,6 +2010,7 @@ function main() {
     if (savedClass) {
       const welcome = [
         "👋 <b>Привет, ФМШонок! С возвращением!</b> 🌲",
+        "🎓 <i>Бот создан учениками для учеников</i>\n",
         `Твой класс: 🟢 <b>${esc(savedClass)}</b>\n`,
         "<blockquote>",
         "📅 /schedule — расписание занятий",
@@ -2031,7 +2036,8 @@ function main() {
       const firstGreeting = [
         "👋 <b>Привет, ФМШонок! Это бот «СУНЦ Инфо»</b> 🌲\n",
         "<blockquote>",
-        "Я твой персональный ассистент по СУНЦ НГУ: расписание уроков по парам, смены питания в столовой, звонки, погода и новости.",
+        "🎓 <b>Бот создан учениками для учеников СУНЦ НГУ (ФМШ).</b>",
+        "Я твой персональный ассистент: расписание уроков по парам, смены питания в столовой, звонки, погода и новости.",
         "</blockquote>\n",
         "👇 <b>ВЫБЕРИ СВОЙ КЛАСС</b>, чтобы я настроил всё под тебя:",
       ].join("\n");
@@ -2927,7 +2933,8 @@ function main() {
     const userIsAdmin = isAdmin(userId);
 
     const lines = [
-      "ℹ️ <b>Команды бота «СУНЦ Инфо»:</b>\n",
+      "ℹ️ <b>Команды бота «СУНЦ Инфо»:</b>",
+      "🎓 <i>Создан учениками для учеников СУНЦ НГУ 🌲</i>\n",
       "<blockquote>",
       "📅 /schedule — расписание занятий по парам",
       "⏰ /tomorrow — расписание на завтра",
@@ -2942,7 +2949,7 @@ function main() {
       "📰 /news — новости школы",
       "🧹 /duty — дежурства классов",
       "🌙 /counselors — ночные вожатые",
-      "ℹ️ /info — контакты и службы школы",
+      "ℹ️ /info — о боте, контакты и службы",
       "🏫 /setclass — сменить свой класс",
       "📝 /report — отправить отчёт или пожелание",
       "</blockquote>",
@@ -3150,7 +3157,7 @@ function main() {
     await ctx.reply(await counselorsText(), { parse_mode: "HTML" });
   });
 
-  bot.command("info", async (ctx) => {
+  bot.command(["info", "about"], async (ctx) => {
     await ctx.reply(await infoText(), { parse_mode: "HTML" });
   });
 
@@ -3704,6 +3711,10 @@ function main() {
       "📌 Мероприятия",
       "🌤 Погода",
       "🏫 Выбрать класс",
+      "ℹ️ Инфо",
+      "ℹ️ О боте",
+      "О боте",
+      "О проекте",
     ];
     if (userId && waitingReportUserIds.has(userId)) {
       if (knownMenuButtons.includes(text) || text.startsWith("🏫 Класс:")) {
@@ -3760,13 +3771,37 @@ function main() {
         reply_markup: getClassSelectionKeyboard(),
       });
     }
+
+    if (
+      text === "ℹ️ Инфо" ||
+      text === "ℹ️ О боте" ||
+      text === "О боте" ||
+      text === "О проекте" ||
+      lowerText === "инфо" ||
+      lowerText === "о боте" ||
+      lowerText === "о проекте"
+    ) {
+      await ctx.replyWithChatAction("typing");
+      return ctx.reply(await infoText(), { parse_mode: "HTML" });
+    }
   });
 
   if (TOKEN) {
     bot
       .init()
-      .then(() => {
-        bot.api.setMyCommands([
+      .then(async () => {
+        await bot.api.setMyDescription(
+          "🌲 «СУНЦ Инфо» — бот создан учениками для учеников СУНЦ НГУ (ФМШ).\n\n" +
+          "Здесь собрано всё самое важное для учёбы и жизни в школе:\n" +
+          "• Расписание уроков по парам с учётом подгрупп\n" +
+          "• Меню столовой и график смен питания\n" +
+          "• Расписание звонков, дежурства и вожатые\n" +
+          "• Мероприятия школы и погода в Академгородке"
+        ).catch(() => {});
+        await bot.api.setMyShortDescription(
+          "Бот создан учениками для учеников СУНЦ НГУ (ФМШ): расписание, столовая, звонки и события."
+        ).catch(() => {});
+        await bot.api.setMyCommands([
           { command: "start", description: "🚀 Запуск и выбор класса" },
           { command: "now", description: "⚡ Что сейчас идёт в школе" },
           { command: "schedule", description: "📅 Расписание занятий по парам" },
@@ -3783,7 +3818,7 @@ function main() {
           { command: "duty", description: "🧹 График дежурств" },
           { command: "counselors", description: "🌙 Ночные вожатые" },
           { command: "report", description: "📝 Отправить отчёт администраторам" },
-          { command: "info", description: "ℹ️ Контакты и службы" },
+          { command: "info", description: "ℹ️ О боте и контакты школы" },
           { command: "help", description: "❓ Справка по командам" },
         ]).catch(() => {});
         return bot.start({

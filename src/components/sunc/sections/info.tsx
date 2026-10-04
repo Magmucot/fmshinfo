@@ -160,8 +160,7 @@ export function InfoSection() {
             <li className="flex gap-2.5 text-sm leading-relaxed">
               <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <span>
-                <span className="font-semibold">Telegram-бот:</span> те же данные — меню, звонки, погода, новости —
-                в боте (модуль mini-services/tg-bot)
+                <span className="font-semibold">Telegram-бот:</span> создан учениками для учеников — меню, звонки, погода, новости и персональное расписание прямо в Telegram
               </span>
             </li>
             <li className="flex gap-2.5 text-sm leading-relaxed">

@@ -251,7 +251,7 @@ const SECTION_DOCS: Array<{
 
 /** Команды Telegram-бота (глава 4) */
 const BOT_COMMANDS: Array<{ cmd: string; args?: string; desc: string }> = [
-  { cmd: "/start, /help", desc: "приветствие и список команд" },
+  { cmd: "/start, /help", desc: "приветствие («создан учениками для учеников») и список команд" },
   { cmd: "/menu", args: "[дата]", desc: "меню столовой с КБЖУ и итогом дня" },
   { cmd: "/bells", desc: "расписание звонков по парам" },
   { cmd: "/schedule", args: "[класс]", desc: "расписание класса (по умолчанию 10-1)" },
@@ -261,7 +261,7 @@ const BOT_COMMANDS: Array<{ cmd: string; args?: string; desc: string }> = [
   { cmd: "/news", desc: "6 последних новостей школы" },
   { cmd: "/duty", desc: "дежурства на сегодня" },
   { cmd: "/counselors", desc: "ночные вожатые на сегодня" },
-  { cmd: "/info", desc: "адрес, e-mail и телефоны школы" },
+  { cmd: "/info, /about", desc: "о боте («создан учениками для учеников»), контакты школы" },
 ];
 
 /** Прямые ссылки ?tab=… (глава 5) */
@@ -589,7 +589,7 @@ export function GuideSection({ onNavigate }: { onNavigate: (tab: string) => void
         num={4}
         icon={<Bot className="h-5 w-5" />}
         title="Telegram-бот"
-        subtitle="Те же данные, что на сайте — прямо в Telegram. Бот синхронен с порталом: берёт данные из его API."
+        subtitle="Создан учениками для учеников. Те же данные, что на сайте — прямо в Telegram. Бот синхронен с порталом: берёт данные из его API."
       >
         <SectionCard>
           <div className="mb-4 flex items-start gap-2.5 rounded-xl bg-secondary/50 p-3 text-sm leading-relaxed text-muted-foreground">

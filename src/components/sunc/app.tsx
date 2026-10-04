@@ -261,7 +261,7 @@ export default function SuncApp() {
           <div className="flex flex-col items-center justify-between gap-2.5 text-center sm:flex-row sm:text-left">
             <div className="space-y-1">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                «СУНЦ Инфо» — неофициальный агрегатор. Данные:{" "}
+                «СУНЦ Инфо» — проект создан учениками для учеников. Данные:{" "}
                 <a href="https://sesc.nsu.ru" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   sesc.nsu.ru
                 </a>
