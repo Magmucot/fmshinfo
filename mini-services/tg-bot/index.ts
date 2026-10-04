@@ -1735,7 +1735,7 @@ export async function weatherText(): Promise<string> {
 }
 
 /** Мероприятия → HTML */
-export async function eventsText(classFilter?: string): Promise<string> {
+export async function eventsText(classFilter?: string, showSource = false): Promise<string> {
   const data = await api<EventsResponse>("/api/events");
   if (!data) return "⚠️ Мероприятия временно недоступны.";
   if (!data.days?.length) return "<blockquote>📌 Ближайших мероприятий в календаре школы не запланировано.</blockquote>";
@@ -1761,7 +1761,9 @@ export async function eventsText(classFilter?: string): Promise<string> {
     if (shown >= 12) break;
   }
 
-  lines.push(`<blockquote expandable>📊 Источник: <a href="${esc(data.source)}">Google-таблица школы</a></blockquote>`);
+  if (showSource) {
+    lines.push(`<blockquote expandable>📊 Источник: <a href="${esc(data.source)}">Google-таблица школы</a></blockquote>`);
+  }
   return lines.join("\n");
 }
 
@@ -1836,6 +1838,84 @@ export async function infoText(): Promise<string> {
   }
   lines.push(`<blockquote>${contactLines.join("\n")}</blockquote>`);
   return lines.join("\n");
+}
+
+/** Функция формирования статистики бота (доступна только верифицированным администраторам) */
+export async function replyStats(ctx: Context) {
+  const userId = ctx.from?.id;
+  const username = ctx.from?.username ?? "unknown";
+
+  if (!isAdmin(userId)) {
+    botLogger.warn("SECURITY", `Blocked unauthorized /stats attempt by user ${userId} (@${username})`);
+    return ctx.reply(
+      "⛔ <b>Доступ ограничен.</b>\nЭта команда предназначена только для верифицированных администраторов.",
+      { parse_mode: "HTML" }
+    );
+  }
+
+  const userIsAdmin = true;
+  const now = Date.now();
+  const activeTodayAfter = now - 24 * 60 * 60 * 1000;
+  const activeWeekAfter = now - 7 * 24 * 60 * 60 * 1000;
+  const byClass: Record<string, number> = {};
+  const byGrade: Record<string, number> = { "8": 0, "9": 0, "10": 0, "11": 0 };
+  let withClass = 0;
+  let activeToday = 0;
+  let activeWeek = 0;
+
+  for (const profile of userProfiles.values()) {
+    const lastActive = Date.parse(profile.lastActiveAt);
+    if (Number.isFinite(lastActive) && lastActive >= activeTodayAfter) activeToday += 1;
+    if (Number.isFinite(lastActive) && lastActive >= activeWeekAfter) activeWeek += 1;
+    if (!profile.className) continue;
+    withClass += 1;
+    byClass[profile.className] = (byClass[profile.className] ?? 0) + 1;
+    const grade = profile.className.split("-")[0];
+    if (grade && grade in byGrade) byGrade[grade] += 1;
+  }
+
+  const topClasses = Object.entries(byClass).sort(([, left], [, right]) => right - left);
+  const requestTime = formatNskTime();
+  const lines = [
+    "📊 <b>Статистика «СУНЦ Инфо»</b>",
+    `🕒 <b>Время запроса:</b> <code>${requestTime}</code>\n`,
+    "<blockquote>",
+    `👥 <b>Всего пользователей:</b> <code>${userProfiles.size}</code>`,
+    `⚡ <b>Активных сегодня:</b> <code>${activeToday}</code>`,
+    `📅 <b>Активных за неделю:</b> <code>${activeWeek}</code>`,
+    `🏫 <b>С выбранным классом:</b> <code>${withClass}</code>`,
+    "</blockquote>\n",
+    "🏆 <b>Топ классов в боте:</b>",
+  ];
+  if (topClasses.length) {
+    topClasses.slice(0, 8).forEach(([className, count], index) => {
+      const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "•";
+      lines.push(`${medal} <b>${esc(className)}</b> — <code>${count}</code> уч.`);
+    });
+  } else {
+    lines.push("<i>Пока нет данных</i>");
+  }
+  lines.push("\n<blockquote expandable>", "🎓 <b>По параллелям:</b>");
+  for (const grade of ["11", "10", "9", "8"]) lines.push(`• ${grade}-е классы: <b>${byGrade[grade]}</b>`);
+  lines.push("</blockquote>");
+
+  if (userIsAdmin) {
+    const recent = [...userProfiles.values()]
+      .sort((left, right) => Date.parse(right.lastActiveAt) - Date.parse(left.lastActiveAt))
+      .slice(0, 8);
+    if (recent.length) {
+      lines.push("\n<blockquote expandable>", "🛡️ <b>Недавняя активность (для администратора):</b>");
+      for (const profile of recent) {
+        const label = profile.username ? `@${esc(profile.username)}` : (profile.firstName ? esc(profile.firstName) : `ID: ${profile.id}`);
+        const className = profile.className ? ` [<b>${esc(profile.className)}</b>]` : "";
+        const action = profile.lastAction ? ` · <i>${esc(profile.lastAction)}</i>` : "";
+        const time = profile.lastActiveAt ? ` (<code>${formatRelativeOrNskTime(profile.lastActiveAt)}</code>)` : "";
+        lines.push(`• <code>${profile.id}</code> ${label}${className}${action}${time}`);
+      }
+      lines.push("</blockquote>");
+    }
+  }
+  await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 }
 
 /* ------------------------------ Бот --------------------------------- */
@@ -1940,7 +2020,6 @@ function main() {
         "🌤 /weather — погода в городке",
         "📰 /news — новости школы",
         "⚙️ /setclass — сменить свой класс",
-        "📊 /stats — статистика школы",
         "</blockquote>",
       ].join("\n");
 
@@ -2807,72 +2886,7 @@ function main() {
     return ctx.reply("Нет активных действий для отмены.");
   });
 
-  // Функция формирования статистики бота
-  async function replyStats(ctx: Context) {
-    const userIsAdmin = isAdmin(ctx.from?.id);
-    const now = Date.now();
-    const activeTodayAfter = now - 24 * 60 * 60 * 1000;
-    const activeWeekAfter = now - 7 * 24 * 60 * 60 * 1000;
-    const byClass: Record<string, number> = {};
-    const byGrade: Record<string, number> = { "8": 0, "9": 0, "10": 0, "11": 0 };
-    let withClass = 0;
-    let activeToday = 0;
-    let activeWeek = 0;
 
-    for (const profile of userProfiles.values()) {
-      const lastActive = Date.parse(profile.lastActiveAt);
-      if (Number.isFinite(lastActive) && lastActive >= activeTodayAfter) activeToday += 1;
-      if (Number.isFinite(lastActive) && lastActive >= activeWeekAfter) activeWeek += 1;
-      if (!profile.className) continue;
-      withClass += 1;
-      byClass[profile.className] = (byClass[profile.className] ?? 0) + 1;
-      const grade = profile.className.split("-")[0];
-      if (grade && grade in byGrade) byGrade[grade] += 1;
-    }
-
-    const topClasses = Object.entries(byClass).sort(([, left], [, right]) => right - left);
-    const requestTime = formatNskTime();
-    const lines = [
-      "📊 <b>Статистика «СУНЦ Инфо»</b>",
-      `🕒 <b>Время запроса:</b> <code>${requestTime}</code>\n`,
-      "<blockquote>",
-      `👥 <b>Всего пользователей:</b> <code>${userProfiles.size}</code>`,
-      `⚡ <b>Активных сегодня:</b> <code>${activeToday}</code>`,
-      `📅 <b>Активных за неделю:</b> <code>${activeWeek}</code>`,
-      `🏫 <b>С выбранным классом:</b> <code>${withClass}</code>`,
-      "</blockquote>\n",
-      "🏆 <b>Топ классов в боте:</b>",
-    ];
-    if (topClasses.length) {
-      topClasses.slice(0, 8).forEach(([className, count], index) => {
-        const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "•";
-        lines.push(`${medal} <b>${esc(className)}</b> — <code>${count}</code> уч.`);
-      });
-    } else {
-      lines.push("<i>Пока нет данных</i>");
-    }
-    lines.push("\n<blockquote expandable>", "🎓 <b>По параллелям:</b>");
-    for (const grade of ["11", "10", "9", "8"]) lines.push(`• ${grade}-е классы: <b>${byGrade[grade]}</b>`);
-    lines.push("</blockquote>");
-
-    if (userIsAdmin) {
-      const recent = [...userProfiles.values()]
-        .sort((left, right) => Date.parse(right.lastActiveAt) - Date.parse(left.lastActiveAt))
-        .slice(0, 8);
-      if (recent.length) {
-        lines.push("\n<blockquote expandable>", "🛡️ <b>Недавняя активность (для администратора):</b>");
-        for (const profile of recent) {
-          const label = profile.username ? `@${esc(profile.username)}` : (profile.firstName ? esc(profile.firstName) : `ID: ${profile.id}`);
-          const className = profile.className ? ` [<b>${esc(profile.className)}</b>]` : "";
-          const action = profile.lastAction ? ` · <i>${esc(profile.lastAction)}</i>` : "";
-          const time = profile.lastActiveAt ? ` (<code>${formatRelativeOrNskTime(profile.lastActiveAt)}</code>)` : "";
-          lines.push(`• <code>${profile.id}</code> ${label}${className}${action}${time}`);
-        }
-        lines.push("</blockquote>");
-      }
-    }
-    await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
-  }
 
   // Статистика берётся из локального файла бота: веб-портал для неё не нужен.
   bot.command(["stats", "users"], replyStats);
@@ -2931,7 +2945,6 @@ function main() {
       "ℹ️ /info — контакты и службы школы",
       "🏫 /setclass — сменить свой класс",
       "📝 /report — отправить отчёт или пожелание",
-      "📊 /stats — статистика школы",
       "</blockquote>",
     ];
 
@@ -2940,6 +2953,7 @@ function main() {
         "\n<blockquote expandable>",
         "🛡️ <b>Команды администратора:</b>",
         "• /admin — панель управления администратора",
+        "• /stats — статистика школы и пользователей",
         "• /reports — прочитать репорты пользователей",
         "• /system — мониторинг нагрузки (ОЗУ/ЦПУ)",
         "• /logs [N] — системный журнал (logs/bot.log)",
@@ -3111,11 +3125,12 @@ function main() {
 
   bot.command("events", async (ctx) => {
     const userId = ctx.from?.id;
+    const userIsAdmin = isAdmin(userId);
     const savedClass = userId ? userClassMap.get(userId) : undefined;
     const arg = ctx.match?.trim() || savedClass;
     const classFilter = arg && /^\d{1,2}-\d{1,2}$/.test(arg) ? arg : undefined;
     await ctx.replyWithChatAction("typing");
-    await ctx.reply(await eventsText(classFilter), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+    await ctx.reply(await eventsText(classFilter, userIsAdmin), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   });
 
   bot.command("weather", async (ctx) => {
@@ -3730,8 +3745,9 @@ function main() {
     }
 
     if (text === "📌 События" || text === "📌 Мероприятия") {
+      const userIsAdmin = isAdmin(userId);
       await ctx.replyWithChatAction("typing");
-      return ctx.reply(await eventsText(savedClass), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+      return ctx.reply(await eventsText(savedClass, userIsAdmin), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     }
 
     if (text === "🌤 Погода") {
@@ -3768,7 +3784,6 @@ function main() {
           { command: "counselors", description: "🌙 Ночные вожатые" },
           { command: "report", description: "📝 Отправить отчёт администраторам" },
           { command: "info", description: "ℹ️ Контакты и службы" },
-          { command: "stats", description: "📊 Статистика школы" },
           { command: "help", description: "❓ Справка по командам" },
         ]).catch(() => {});
         return bot.start({
@@ -3830,6 +3845,51 @@ if (import.meta.main) {
             "today_navigation_buttons",
           ],
         }, { status: pollingReady ? 200 : 503 });
+      }
+      if (url.pathname === "/stats") {
+        const authKey = req.headers.get("x-admin-key") || req.headers.get("authorization");
+        const authorized = Boolean(
+          ADMIN_KEY &&
+          (authKey === ADMIN_KEY || authKey === `Bearer ${ADMIN_KEY}`)
+        );
+        if (!authorized) {
+          botLogger.warn("SECURITY", `Blocked unauthorized HTTP /stats attempt from ${req.headers.get("x-forwarded-for") || "unknown"}`);
+          return Response.json(
+            { ok: false, error: "Доступ ограничен. Требуются права администратора." },
+            { status: 403 }
+          );
+        }
+
+        const now = Date.now();
+        const activeTodayAfter = now - 24 * 60 * 60 * 1000;
+        const activeWeekAfter = now - 7 * 24 * 60 * 60 * 1000;
+        const byClass: Record<string, number> = {};
+        const byGrade: Record<string, number> = { "8": 0, "9": 0, "10": 0, "11": 0 };
+        let withClass = 0;
+        let activeToday = 0;
+        let activeWeek = 0;
+
+        for (const profile of userProfiles.values()) {
+          const lastActive = Date.parse(profile.lastActiveAt);
+          if (Number.isFinite(lastActive) && lastActive >= activeTodayAfter) activeToday += 1;
+          if (Number.isFinite(lastActive) && lastActive >= activeWeekAfter) activeWeek += 1;
+          if (!profile.className) continue;
+          withClass += 1;
+          byClass[profile.className] = (byClass[profile.className] ?? 0) + 1;
+          const grade = profile.className.split("-")[0];
+          if (grade && grade in byGrade) byGrade[grade] += 1;
+        }
+
+        return Response.json({
+          ok: true,
+          requestedAt: formatNskTime(),
+          totalUsers: userProfiles.size,
+          activeToday,
+          activeWeek,
+          withClass,
+          byClass,
+          byGrade,
+        });
       }
       if (url.pathname.startsWith("/api/")) {
         let body: any = undefined;
